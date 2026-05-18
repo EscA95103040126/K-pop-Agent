@@ -73,18 +73,21 @@ class ChartHistoryRepository:
         if not self.db_path.exists():
             return self._load_mock(artist)
 
-        with self._connect() as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                """
-                SELECT chart_date, rank, title, artist, album, change_rank
-                FROM chart_history
-                WHERE lower(artist) LIKE ?
-                ORDER BY chart_date DESC
-                LIMIT ?
-                """,
-                (f"%{artist.lower()}%", weeks),
-            ).fetchall()
+        try:
+            with self._connect() as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    """
+                    SELECT chart_date, rank, title, artist, album, change_rank
+                    FROM chart_history
+                    WHERE lower(artist) LIKE ?
+                    ORDER BY chart_date DESC
+                    LIMIT ?
+                    """,
+                    (f"%{artist.lower()}%", weeks),
+                ).fetchall()
+        except sqlite3.Error:
+            return self._load_mock(artist)
 
         if not rows:
             return self._load_mock(artist)

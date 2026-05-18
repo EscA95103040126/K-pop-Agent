@@ -1,63 +1,94 @@
-# K-pop Multi-Tool Agent MVP
+# K-pop Multi-Tool Agent
 
-Phase 1 MVP：Line Bot webhook → Flask backend → intent routing → Naver News API → SQLite chart history → Gemini report → reply.
+一個以 Flask 為基礎的 K-pop 市場分析 Agent，整合榜單趨勢、Naver 新聞、韓文情感分析，透過 Gemini 產出結構化繁體中文報告，並透過 LINE Messaging API 回覆使用者。所有 API 金鑰缺失時自動進入 mock 模式，本機無需任何外部帳號即可展演。
 
-目前刻意不包含 Tool D 韓文情感模型、YouTube API、Melon 評論爬蟲與複雜前端。
+---
 
-## 專案結構
+## 系統架構
 
-```text
-kpop-agent/
-├── app.py
-├── requirements.txt
-├── .env.example
-├── data/
-│   ├── chart_history.db
-│   ├── seed_chart_data.csv
-│   └── mock/
-├── scripts/
-├── src/
-└── tests/
+```
+使用者訊息（LINE / POST /analyze）
+        │
+        ▼
+   Intent Router
+   （src/router.py）
+        │
+   ┌────┴────────────────────────┐
+   │                             │
+   ▼                             ▼
+Tool B                        Tool C
+Naver News API                SQLite 榜單趨勢
+（mock fallback）              （mock fallback）
+   │                             │
+   └──────────┬──────────────────┘
+              │
+              ▼
+           Tool D
+     情感分析 CSV classifier
+     （fallback: 無資料訊息）
+              │
+              ▼
+     Gemini Report Generator
+     （mock fallback）
+              │
+              ▼
+        結構化分析報告
 ```
 
-## 安裝
+> Tool A（Bugs 週榜爬蟲）為獨立腳本，定期執行後寫入 SQLite，不在即時分析路徑上。
+
+---
+
+## 四個 Tool 說明
+
+| Tool | 功能 | 技術 | 狀態 |
+|------|------|------|------|
+| Tool A | Bugs 週榜爬蟲，抓取前 100 名並寫入 SQLite | requests + BeautifulSoup | ✅ 完成 |
+| Tool B | Naver News API 搜尋近期新聞事件 | Naver Search API / mock JSON | ✅ 完成 |
+| Tool C | SQLite 歷史榜單查詢與趨勢統計 | SQLite3 / mock JSON | ✅ 完成 |
+| Tool D | 韓文評論規則式情感分類與摘要 | 關鍵字分類 / sample_comments.csv | ✅ 完成 |
+
+---
+
+## 快速啟動
+
+### 安裝依賴
 
 ```bash
-cd kpop-agent
-python3.11 -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+```
+
+### 設定 .env
+
+```bash
 cp .env.example .env
+# 編輯 .env，填入 API 金鑰（可留空，系統自動進入 mock 模式）
 ```
 
-## 設定環境變數
-
-編輯 `.env`：
+### 初始化資料庫
 
 ```bash
-LINE_CHANNEL_ACCESS_TOKEN=你的 Line access token
-LINE_CHANNEL_SECRET=你的 Line channel secret
-NAVER_CLIENT_ID=你的 Naver client id
-NAVER_CLIENT_SECRET=你的 Naver client secret
-GEMINI_API_KEY=你的 Gemini API key
+python3 scripts/init_db.py
+python3 scripts/seed_data.py
 ```
 
-沒有填 API key 也可以跑：系統會自動進入 mock mode，讀取 `data/mock/` 的 demo JSON 和報告。
-
-## 初始化資料庫與匯入 seed data
+### 啟動伺服器
 
 ```bash
-python scripts/init_db.py
-python scripts/seed_data.py
+python3 app.py
 ```
 
-`seed_data.py` 會匯入 `data/seed_chart_data.csv`，目前包含 aespa、IVE、NewJeans 的 12 週 demo chart data。
-
-## 本機執行
+### 展演模式（全 mock，無需任何 API 金鑰）
 
 ```bash
-flask --app app run --debug --port 5000
+python3 scripts/demo.py
 ```
+
+---
+
+## API 範例
 
 健康檢查：
 
@@ -65,36 +96,23 @@ flask --app app run --debug --port 5000
 curl http://127.0.0.1:5000/health
 ```
 
-`/health` 會回報目前主線整合狀態：
-
-```json
-{
-  "status": "ok",
-  "sqlite_ok": true,
-  "bugs_tool_available": true,
-  "naver_mode": "real 或 mock",
-  "gemini_mode": "real 或 mock",
-  "line_mode": "real 或 mock"
-}
-```
-
-本機測試分析 API：
+分析報告：
 
 ```bash
 curl -X POST http://127.0.0.1:5000/analyze \
   -H "Content-Type: application/json" \
-  -d '{"message":"分析 aespa 最近三個月表現"}'
+  -d '{"message":"分析 aespa 最近表現"}'
+
+curl -X POST http://127.0.0.1:5000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"message":"IVE 的輿論風向是什麼？"}'
+
+curl -X POST http://127.0.0.1:5000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"message":"NewJeans 近期市場表現如何？"}'
 ```
 
-## LINE Webhook
-
-部署後，把 LINE Developers 後台 webhook URL 設成：
-
-```text
-https://你的網域/webhook
-```
-
-開發時若尚未設定 LINE key，`/webhook` 會接受 mock JSON：
+LINE Webhook（mock 模式）：
 
 ```bash
 curl -X POST http://127.0.0.1:5000/webhook \
@@ -102,44 +120,32 @@ curl -X POST http://127.0.0.1:5000/webhook \
   -d '{"message":"IVE 新專輯的粉絲反應如何？"}'
 ```
 
+---
+
 ## 測試
 
 ```bash
 pytest
 ```
 
-## 抓取 Bugs 週榜並寫入 SQLite
+---
 
-Phase 2 新增 Tool A，可從 Bugs 週榜抓取目前週榜前 100 名並寫入既有 `chart_history` table：
-
-```bash
-python scripts/fetch_bugs_chart.py
-```
-
-寫入使用 `INSERT OR IGNORE`，同一週同一首歌重複執行不會重複新增。
-
-## Phase 1 範圍
-
-- Flask webhook 與本機 `/analyze` 測試端點
-- 簡單 intent router
-- Tool B：Naver News API，無 key 時讀 mock JSON
-- Tool C：SQLite 歷史榜單查詢與趨勢統計
-- Gemini report generator，無 key 時產生 mock report
-- SQLite schema、seed CSV、seed script
-
-## Phase 2 範圍
-
-- Tool A：Bugs 週榜爬蟲
-- Bugs 週榜資料自動寫入 SQLite `chart_history`
-- 保留既有 Line Bot、mock mode、`/health`、`/analyze` 主線
-
-## Phase 2.5 穩定化檢查
+## 抓取 Bugs 週榜
 
 ```bash
-python scripts/fetch_bugs_chart.py
-curl http://127.0.0.1:5000/health
-curl -X POST http://127.0.0.1:5000/analyze \
-  -H "Content-Type: application/json" \
-  -d '{"message":"分析 aespa 最近三個月表現"}'
-pytest
+python3 scripts/fetch_bugs_chart.py
 ```
+
+---
+
+## 開發進度
+
+| Phase | 說明 | 狀態 |
+|-------|------|------|
+| Phase 1 | Flask webhook、Intent Router、Tool B Naver News、Tool C SQLite、Gemini report | ✅ 完成 |
+| Phase 2 | Tool A Bugs 週榜爬蟲、自動寫入 SQLite | ✅ 完成 |
+| Phase 2.5 | 整合穩定化、real Naver API 支援、gitignore 修正 | ✅ 完成 |
+| Phase 3-1 | Tool D CSV 評論資料集（60 則，aespa / IVE / NewJeans） | ✅ 完成 |
+| Phase 3-2 | Tool D 規則式情感分類器（classify_comment / analyze_sentiment_from_csv）+ pytest 12 tests | ✅ 完成 |
+| Phase 3-3 | Tool D 整合進 /analyze，Section 3 顯示真實情感數據 | ✅ 完成 |
+| Phase 4 | 展演穩定化：mock fallback 補齊、demo script、README 更新 | ✅ 完成 |
