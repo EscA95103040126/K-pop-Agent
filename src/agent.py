@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,10 @@ _SENTIMENT_FALLBACK: dict = {
     "top_keywords": [],
     "summary": "Tool D 尚未取得足夠評論樣本。",
 }
+FLEX_HEADER_COLOR = "#1DB954"
+FLEX_PAGE_BACKGROUND = "#1E1E1E"
+FLEX_BLOCK_BACKGROUND = "#2A2A2A"
+FLEX_TEXT_COLOR = "#FFFFFF"
 
 
 class KpopAnalysisAgent:
@@ -39,6 +44,9 @@ class KpopAnalysisAgent:
         chart = self.chart_repo.get_artist_trend(intent.artist, weeks=intent.period_months * 4)
         sentiment = self._fetch_sentiment(intent.artist)
         return self.generate_report(intent=intent, news=news, chart=chart, sentiment=sentiment)
+
+    def build_flex_message(self, report: str) -> dict[str, Any]:
+        return build_report_flex(report)
 
     def _fetch_sentiment(self, artist_name: str) -> dict:
         try:
@@ -168,3 +176,117 @@ Tool D 情感分析結果：
 
 ## 5. 一句話總結
 """.strip()
+
+
+def build_report_flex(report: str) -> dict[str, Any]:
+    sections = _extract_report_sections(report)
+    artist_name = _extract_artist_name(report)
+    summary = _section_body(sections.get("5", "")).strip() or "分析報告已產生。"
+
+    return {
+        "type": "bubble",
+        "size": "mega",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": FLEX_HEADER_COLOR,
+            "paddingAll": "18px",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": artist_name,
+                    "weight": "bold",
+                    "size": "xl",
+                    "color": FLEX_TEXT_COLOR,
+                    "wrap": True,
+                }
+            ],
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": FLEX_PAGE_BACKGROUND,
+            "spacing": "md",
+            "paddingAll": "14px",
+            "contents": [
+                _flex_block("榜單表現", _section_body(sections.get("1", ""))),
+                _flex_block("粉絲與輿論反應", _section_body(sections.get("3", ""))),
+                _flex_block("綜合判斷", _section_body(sections.get("4", ""))),
+            ],
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": FLEX_BLOCK_BACKGROUND,
+            "paddingAll": "14px",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": _truncate(summary, 260),
+                    "color": FLEX_TEXT_COLOR,
+                    "size": "sm",
+                    "style": "italic",
+                    "wrap": True,
+                }
+            ],
+        },
+    }
+
+
+def _flex_block(title: str, body: str) -> dict[str, Any]:
+    return {
+        "type": "box",
+        "layout": "vertical",
+        "backgroundColor": FLEX_BLOCK_BACKGROUND,
+        "paddingAll": "12px",
+        "spacing": "sm",
+        "contents": [
+            {
+                "type": "text",
+                "text": title,
+                "weight": "bold",
+                "size": "md",
+                "color": FLEX_TEXT_COLOR,
+            },
+            {
+                "type": "text",
+                "text": _truncate(body or "（無資料）", 520),
+                "size": "sm",
+                "color": FLEX_TEXT_COLOR,
+                "wrap": True,
+            },
+        ],
+    }
+
+
+def _extract_artist_name(report: str) -> str:
+    for line in report.splitlines():
+        if line.startswith("# "):
+            return line.removeprefix("# ").replace("近期市場與輿論分析", "").strip() or "K-pop Agent"
+    return "K-pop Agent"
+
+
+def _extract_report_sections(report: str) -> dict[str, str]:
+    matches = list(re.finditer(r"^##\s+(\d+)\.\s+(.+)$", report, flags=re.MULTILINE))
+    sections: dict[str, str] = {}
+    for index, match in enumerate(matches):
+        start = match.start()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(report)
+        sections[match.group(1)] = report[start:end].strip()
+    return sections
+
+
+def _section_body(section: str) -> str:
+    lines = []
+    for line in section.splitlines()[1:]:
+        clean_line = line.strip()
+        if not clean_line:
+            continue
+        lines.append(clean_line.removeprefix("- ").strip())
+    return "\n".join(lines)
+
+
+def _truncate(text: str, max_length: int) -> str:
+    if len(text) <= max_length:
+        return text
+    return text[: max_length - 1].rstrip() + "…"

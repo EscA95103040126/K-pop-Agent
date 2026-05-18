@@ -16,6 +16,8 @@ try:
     from linebot.v3.messaging import (
         ApiClient,
         Configuration,
+        FlexContainer,
+        FlexMessage,
         MessagingApi,
         ReplyMessageRequest,
         TextMessage,
@@ -26,6 +28,8 @@ except ImportError:  # pragma: no cover - lets local mock mode run without LINE 
     InvalidSignatureError = Exception
     ApiClient = None
     Configuration = None
+    FlexContainer = None
+    FlexMessage = None
     MessagingApi = None
     ReplyMessageRequest = None
     TextMessage = None
@@ -104,6 +108,20 @@ def _extract_mock_message(payload: dict) -> str:
     return str(message.get("text") or "")
 
 
+def _build_line_reply_message(report: str):
+    if FlexMessage is None or FlexContainer is None:
+        return TextMessage(text=fit_line_text(report))
+
+    try:
+        flex_contents = agent.build_flex_message(report)
+        return FlexMessage(
+            altText="K-pop 분석 보고서",
+            contents=FlexContainer.from_dict(flex_contents),
+        )
+    except Exception:
+        return TextMessage(text=fit_line_text(report))
+
+
 def _mode(is_mock: bool) -> str:
     return "mock" if is_mock else "real"
 
@@ -161,7 +179,7 @@ if line_handler is not None and MessageEvent is not None and TextMessageContent 
     @line_handler.add(MessageEvent, message=TextMessageContent)
     def handle_text_message(event: MessageEvent) -> None:
         user_text = event.message.text
-        report = fit_line_text(agent.analyze_message(user_text))
+        report = agent.analyze_message(user_text)
         if not line_configuration:
             return
         with ApiClient(line_configuration) as api_client:
@@ -169,7 +187,7 @@ if line_handler is not None and MessageEvent is not None and TextMessageContent 
             line_bot_api.reply_message(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
-                    messages=[TextMessage(text=report)],
+                    messages=[_build_line_reply_message(report)],
                 )
             )
 
