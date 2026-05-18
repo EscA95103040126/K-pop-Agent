@@ -62,6 +62,64 @@ def classify_comment(comment: str | None) -> str:
         return "neutral"
 
 
+def analyze_sentiment_from_csv(artist_name: str, song: str | None = None) -> dict:
+    """Analyze comment sentiment for an artist (optionally filtered by song).
+
+    Returns a dict with total_comments, sentiment ratios, top_keywords, and summary.
+    """
+    comments = get_comments_by_artist(artist_name)
+    if song:
+        comments = [c for c in comments if c["song"].casefold() == song.casefold()]
+
+    total = len(comments)
+    if total == 0:
+        return {
+            "artist": artist_name,
+            "song": song,
+            "total_comments": 0,
+            "sentiment": {"positive": 0, "neutral": 0, "negative": 0},
+            "top_keywords": [],
+            "summary": "Tool D 尚未取得足夠評論樣本。",
+        }
+
+    counts: dict[str, int] = {"positive": 0, "neutral": 0, "negative": 0}
+    keyword_freq: dict[str, int] = {}
+    all_keywords = POSITIVE_KEYWORDS + NEGATIVE_KEYWORDS
+
+    for row in comments:
+        text = row["comment"]
+        label = classify_comment(text)
+        counts[label] += 1
+        for kw in all_keywords:
+            if kw in text:
+                keyword_freq[kw] = keyword_freq.get(kw, 0) + 1
+
+    sentiment = {k: round(v / total, 4) for k, v in counts.items()}
+    top_keywords = sorted(keyword_freq, key=lambda k: keyword_freq[k], reverse=True)[:5]
+
+    pos = sentiment["positive"]
+    neg = sentiment["negative"]
+    if pos >= 0.5:
+        summary = "整體評論偏正面。"
+    elif neg >= 0.5:
+        summary = "整體評論偏負面。"
+    elif pos > neg:
+        summary = "評論以正面為主，但也有部分中性或負面意見。"
+    elif neg > pos:
+        summary = "評論以負面為主，但也有部分中性或正面意見。"
+    else:
+        summary = "正負評論比例相近，整體評論呈中性。"
+
+    return {
+        "artist": artist_name,
+        "song": song,
+        "total_comments": total,
+        "sentiment": sentiment,
+        "top_keywords": top_keywords,
+        "summary": summary,
+    }
+
+
 def _normalize_artist_name(artist_name: str) -> str:
     normalized = artist_name.strip().casefold()
     return ARTIST_ALIASES.get(normalized, normalized.replace(" ", ""))
