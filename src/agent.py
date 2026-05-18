@@ -10,6 +10,13 @@ from src.config import Settings, settings
 from src.router import Intent, route_message
 from src.tools.chart_db import ChartHistoryRepository
 from src.tools.naver_news import NaverNewsClient
+from src.tools.sentiment import analyze_sentiment_from_csv
+
+_SENTIMENT_FALLBACK: dict = {
+    "sentiment": {"positive": 0, "neutral": 0, "negative": 0},
+    "top_keywords": [],
+    "summary": "Tool D 尚未取得足夠評論樣本。",
+}
 
 
 class KpopAnalysisAgent:
@@ -30,20 +37,33 @@ class KpopAnalysisAgent:
         intent = route_message(message)
         news = self.news_client.search(intent.artist)
         chart = self.chart_repo.get_artist_trend(intent.artist, weeks=intent.period_months * 4)
-        return self.generate_report(intent=intent, news=news, chart=chart)
+        sentiment = self._fetch_sentiment(intent.artist)
+        return self.generate_report(intent=intent, news=news, chart=chart, sentiment=sentiment)
+
+    def _fetch_sentiment(self, artist_name: str) -> dict:
+        try:
+            result = analyze_sentiment_from_csv(artist_name)
+            if result.get("total_comments", 0) == 0:
+                return _SENTIMENT_FALLBACK
+            return result
+        except Exception:
+            return _SENTIMENT_FALLBACK
 
     def generate_report(
         self,
         intent: Intent,
         news: list[dict[str, Any]],
         chart: dict[str, Any],
+        sentiment: dict | None = None,
     ) -> str:
+        if sentiment is None:
+            sentiment = _SENTIMENT_FALLBACK
         if self.config.use_gemini_mock:
-            return self._generate_mock_report(intent=intent, news=news, chart=chart)
+            return self._generate_mock_report(intent=intent, news=news, chart=chart, sentiment=sentiment)
 
         genai.configure(api_key=self.config.gemini_api_key)
         model = genai.GenerativeModel(self.config.gemini_model)
-        prompt = self._build_prompt(intent=intent, news=news, chart=chart)
+        prompt = self._build_prompt(intent=intent, news=news, chart=chart, sentiment=sentiment)
         response = model.generate_content(prompt)
         return (response.text or "").strip()
 
@@ -52,7 +72,10 @@ class KpopAnalysisAgent:
         intent: Intent,
         news: list[dict[str, Any]],
         chart: dict[str, Any],
+        sentiment: dict | None = None,
     ) -> str:
+        if sentiment is None:
+            sentiment = _SENTIMENT_FALLBACK
         mock_report = self.config.mock_data_dir / f"report_{intent.artist.lower()}.md"
         if mock_report.exists():
             return mock_report.read_text(encoding="utf-8")
@@ -73,8 +96,11 @@ class KpopAnalysisAgent:
 - 事件類型：{event_types}
 
 ## 3. 粉絲與輿論反應
-- Phase 1 MVP 尚未接入韓文情感模型
-- 目前以新聞聲量和榜單趨勢作為輿論背景參考
+- 正面比例：{sentiment['sentiment']['positive']}
+- 中立比例：{sentiment['sentiment']['neutral']}
+- 負面比例：{sentiment['sentiment']['negative']}
+- 主要情緒關鍵字：{', '.join(sentiment['top_keywords']) if sentiment['top_keywords'] else '（無資料）'}
+- 簡短解讀：{sentiment['summary']}
 
 ## 4. 綜合判斷
 - 市場熱度：{"高" if chart.get("best_rank", 99) <= 3 else "中"}
@@ -90,7 +116,12 @@ class KpopAnalysisAgent:
         intent: Intent,
         news: list[dict[str, Any]],
         chart: dict[str, Any],
+        sentiment: dict | None = None,
     ) -> str:
+        if sentiment is None:
+            sentiment = _SENTIMENT_FALLBACK
+        s = sentiment["sentiment"]
+        kw = ", ".join(sentiment["top_keywords"]) if sentiment["top_keywords"] else "（無資料）"
         return f"""
 你是 K-pop 市場分析助理。請根據工具資料，用繁體中文產生結構化分析報告。
 
@@ -105,6 +136,9 @@ Tool B Naver News 結果：
 
 Tool C SQLite 榜單趨勢：
 {json.dumps(chart, ensure_ascii=False, indent=2)}
+
+Tool D 情感分析結果：
+{json.dumps(sentiment, ensure_ascii=False, indent=2)}
 
 請嚴格使用以下格式，不要加入無資料支撐的 API key、程式細節或內部推理：
 
@@ -121,8 +155,11 @@ Tool C SQLite 榜單趨勢：
 - 事件類型：comeback / 銷量 / 爭議 / 代言 / 演唱會 / 榜單
 
 ## 3. 粉絲與輿論反應
-- Phase 1 尚未接入韓文情感分析模型，請只根據新聞摘要推估討論方向
-- 不要編造正面/中立/負面比例
+- 正面比例：{s['positive']}
+- 中立比例：{s['neutral']}
+- 負面比例：{s['negative']}
+- 主要情緒關鍵字：{kw}
+- 簡短解讀：{sentiment['summary']}
 
 ## 4. 綜合判斷
 - 市場熱度：高 / 中 / 低
