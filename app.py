@@ -72,10 +72,18 @@ def health() -> tuple[dict, int]:
 def analyze() -> tuple[dict, int]:
     payload = request.get_json(silent=True) or {}
     message = payload.get("message", "")
+    artist = payload.get("artist", "")
+    if not message and artist:
+        message = f"分析 {artist}"
     if not message:
-        return {"error": "message is required"}, 400
+        return {"error": "message or artist is required"}, 400
     report = agent.analyze_message(message)
-    return {"report": report}, 200
+    response = {"report": report}
+    try:
+        response["flex"] = agent.build_flex_message(report)
+    except Exception:
+        response["flex"] = None
+    return response, 200
 
 
 @app.post("/webhook")
