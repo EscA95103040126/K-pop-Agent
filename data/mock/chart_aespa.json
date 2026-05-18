@@ -1,0 +1,13 @@
+{
+  "artist": "aespa",
+  "period": "2026-03-02 ～ 2026-05-18",
+  "best_rank": 1,
+  "avg_rank": 3.5,
+  "weeks_on_chart": 12,
+  "trend": "上升",
+  "history": [
+    {"chart_date": "2026-05-18", "rank": 1, "title": "Supernova", "change_rank": 1},
+    {"chart_date": "2026-05-11", "rank": 2, "title": "Supernova", "change_rank": -1},
+    {"chart_date": "2026-05-04", "rank": 1, "title": "Supernova", "change_rank": 0}
+  ]
+}

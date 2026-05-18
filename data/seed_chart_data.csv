@@ -1,0 +1,37 @@
+fetch_date,chart_date,source,chart_type,rank,title,artist,album,change_rank
+2026-03-02,2026-03-02,bugs,weekly,8,Drama,aespa,Drama,0
+2026-03-09,2026-03-09,bugs,weekly,7,Drama,aespa,Drama,1
+2026-03-16,2026-03-16,bugs,weekly,6,Drama,aespa,Drama,1
+2026-03-23,2026-03-23,bugs,weekly,5,Supernova,aespa,Armageddon,1
+2026-03-30,2026-03-30,bugs,weekly,4,Supernova,aespa,Armageddon,1
+2026-04-06,2026-04-06,bugs,weekly,3,Supernova,aespa,Armageddon,1
+2026-04-13,2026-04-13,bugs,weekly,2,Supernova,aespa,Armageddon,1
+2026-04-20,2026-04-20,bugs,weekly,2,Supernova,aespa,Armageddon,0
+2026-04-27,2026-04-27,bugs,weekly,1,Supernova,aespa,Armageddon,1
+2026-05-04,2026-05-04,bugs,weekly,1,Supernova,aespa,Armageddon,0
+2026-05-11,2026-05-11,bugs,weekly,2,Supernova,aespa,Armageddon,-1
+2026-05-18,2026-05-18,bugs,weekly,1,Supernova,aespa,Armageddon,1
+2026-03-02,2026-03-02,bugs,weekly,9,HEYA,IVE,IVE SWITCH,0
+2026-03-09,2026-03-09,bugs,weekly,8,HEYA,IVE,IVE SWITCH,1
+2026-03-16,2026-03-16,bugs,weekly,7,HEYA,IVE,IVE SWITCH,1
+2026-03-23,2026-03-23,bugs,weekly,7,HEYA,IVE,IVE SWITCH,0
+2026-03-30,2026-03-30,bugs,weekly,6,HEYA,IVE,IVE SWITCH,1
+2026-04-06,2026-04-06,bugs,weekly,5,HEYA,IVE,IVE SWITCH,1
+2026-04-13,2026-04-13,bugs,weekly,4,Accendio,IVE,IVE SWITCH,1
+2026-04-20,2026-04-20,bugs,weekly,4,Accendio,IVE,IVE SWITCH,0
+2026-04-27,2026-04-27,bugs,weekly,5,Accendio,IVE,IVE SWITCH,-1
+2026-05-04,2026-05-04,bugs,weekly,6,Accendio,IVE,IVE SWITCH,-1
+2026-05-11,2026-05-11,bugs,weekly,5,Accendio,IVE,IVE SWITCH,1
+2026-05-18,2026-05-18,bugs,weekly,4,Accendio,IVE,IVE SWITCH,1
+2026-03-02,2026-03-02,bugs,weekly,3,How Sweet,NewJeans,How Sweet,0
+2026-03-09,2026-03-09,bugs,weekly,3,How Sweet,NewJeans,How Sweet,0
+2026-03-16,2026-03-16,bugs,weekly,4,How Sweet,NewJeans,How Sweet,-1
+2026-03-23,2026-03-23,bugs,weekly,4,How Sweet,NewJeans,How Sweet,0
+2026-03-30,2026-03-30,bugs,weekly,5,How Sweet,NewJeans,How Sweet,-1
+2026-04-06,2026-04-06,bugs,weekly,5,How Sweet,NewJeans,How Sweet,0
+2026-04-13,2026-04-13,bugs,weekly,6,How Sweet,NewJeans,How Sweet,-1
+2026-04-20,2026-04-20,bugs,weekly,6,How Sweet,NewJeans,How Sweet,0
+2026-04-27,2026-04-27,bugs,weekly,7,How Sweet,NewJeans,How Sweet,-1
+2026-05-04,2026-05-04,bugs,weekly,7,How Sweet,NewJeans,How Sweet,0
+2026-05-11,2026-05-11,bugs,weekly,8,How Sweet,NewJeans,How Sweet,-1
+2026-05-18,2026-05-18,bugs,weekly,7,How Sweet,NewJeans,How Sweet,1

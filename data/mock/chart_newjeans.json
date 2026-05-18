@@ -1,0 +1,13 @@
+{
+  "artist": "NewJeans",
+  "period": "2026-03-02 ～ 2026-05-18",
+  "best_rank": 3,
+  "avg_rank": 5.42,
+  "weeks_on_chart": 12,
+  "trend": "下降",
+  "history": [
+    {"chart_date": "2026-05-18", "rank": 7, "title": "How Sweet", "change_rank": 1},
+    {"chart_date": "2026-05-11", "rank": 8, "title": "How Sweet", "change_rank": -1},
+    {"chart_date": "2026-05-04", "rank": 7, "title": "How Sweet", "change_rank": 0}
+  ]
+}

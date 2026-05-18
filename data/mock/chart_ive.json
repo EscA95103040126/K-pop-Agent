@@ -1,0 +1,13 @@
+{
+  "artist": "IVE",
+  "period": "2026-03-02 ～ 2026-05-18",
+  "best_rank": 4,
+  "avg_rank": 5.83,
+  "weeks_on_chart": 12,
+  "trend": "上升",
+  "history": [
+    {"chart_date": "2026-05-18", "rank": 4, "title": "Accendio", "change_rank": 1},
+    {"chart_date": "2026-05-11", "rank": 5, "title": "Accendio", "change_rank": 1},
+    {"chart_date": "2026-05-04", "rank": 6, "title": "Accendio", "change_rank": -1}
+  ]
+}
