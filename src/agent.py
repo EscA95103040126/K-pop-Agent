@@ -18,10 +18,18 @@ _SENTIMENT_FALLBACK: dict = {
     "top_keywords": [],
     "summary": "Tool D 尚未取得足夠評論樣本。",
 }
-FLEX_HEADER_COLOR = "#1DB954"
-FLEX_PAGE_BACKGROUND = "#1E1E1E"
-FLEX_BLOCK_BACKGROUND = "#2A2A2A"
-FLEX_TEXT_COLOR = "#FFFFFF"
+# 韓式 ins 風格：奶油白 × 玫瑰棕
+FLEX_HEADER_BG        = "#C4956A"   # 玫瑰棕
+FLEX_HEADER_TEXT      = "#FFFFFF"   # 白色
+FLEX_HEADER_SUBTITLE  = "#FDEBD8"   # 淺暖白
+FLEX_PAGE_BACKGROUND  = "#FAF7F4"   # 奶油白
+FLEX_BLOCK_BACKGROUND = "#FFFFFF"   # 純白
+FLEX_BLOCK_ACCENT     = "#C4956A"   # 豎線裝飾色（同 header）
+FLEX_BLOCK_TITLE      = "#8B5E52"   # 深玫瑰棕
+FLEX_TEXT_COLOR       = "#5C4033"   # 深棕
+FLEX_SEPARATOR_COLOR  = "#E8D5C4"   # 淺奶茶
+FLEX_FOOTER_BG        = "#F2EAE3"   # 淺奶油
+FLEX_FOOTER_TEXT      = "#8B5E52"   # 深玫瑰棕
 
 
 class KpopAnalysisAgent:
@@ -183,23 +191,46 @@ def build_report_flex(report: str) -> dict[str, Any]:
     artist_name = _extract_artist_name(report)
     summary = _section_body(sections.get("5", "")).strip() or "分析報告已產生。"
 
+    block_configs = [
+        ("榜單表現", sections.get("1", "")),
+        ("粉絲與輿論反應", sections.get("3", "")),
+        ("綜合判斷", sections.get("4", "")),
+    ]
+    body_contents: list[dict[str, Any]] = []
+    for i, (title, section) in enumerate(block_configs):
+        if i > 0:
+            body_contents.append({
+                "type": "separator",
+                "color": FLEX_SEPARATOR_COLOR,
+                "margin": "md",
+            })
+        body_contents.append(_flex_block(title, _section_body(section)))
+
     return {
         "type": "bubble",
         "size": "mega",
         "header": {
             "type": "box",
             "layout": "vertical",
-            "backgroundColor": FLEX_HEADER_COLOR,
+            "backgroundColor": FLEX_HEADER_BG,
             "paddingAll": "18px",
             "contents": [
                 {
                     "type": "text",
+                    "text": "近期市場與輿論分析",
+                    "size": "xs",
+                    "color": FLEX_HEADER_SUBTITLE,
+                    "margin": "none",
+                },
+                {
+                    "type": "text",
                     "text": artist_name,
                     "weight": "bold",
-                    "size": "xl",
-                    "color": FLEX_TEXT_COLOR,
+                    "size": "xxl",
+                    "color": FLEX_HEADER_TEXT,
                     "wrap": True,
-                }
+                    "margin": "sm",
+                },
             ],
         },
         "body": {
@@ -207,23 +238,19 @@ def build_report_flex(report: str) -> dict[str, Any]:
             "layout": "vertical",
             "backgroundColor": FLEX_PAGE_BACKGROUND,
             "spacing": "md",
-            "paddingAll": "14px",
-            "contents": [
-                _flex_block("榜單表現", _section_body(sections.get("1", ""))),
-                _flex_block("粉絲與輿論反應", _section_body(sections.get("3", ""))),
-                _flex_block("綜合判斷", _section_body(sections.get("4", ""))),
-            ],
+            "paddingAll": "16px",
+            "contents": body_contents,
         },
         "footer": {
             "type": "box",
             "layout": "vertical",
-            "backgroundColor": FLEX_BLOCK_BACKGROUND,
+            "backgroundColor": FLEX_FOOTER_BG,
             "paddingAll": "14px",
             "contents": [
                 {
                     "type": "text",
                     "text": _truncate(summary, 260),
-                    "color": FLEX_TEXT_COLOR,
+                    "color": FLEX_FOOTER_TEXT,
                     "size": "sm",
                     "style": "italic",
                     "wrap": True,
@@ -238,22 +265,43 @@ def _flex_block(title: str, body: str) -> dict[str, Any]:
         "type": "box",
         "layout": "vertical",
         "backgroundColor": FLEX_BLOCK_BACKGROUND,
+        "cornerRadius": "12px",
         "paddingAll": "12px",
-        "spacing": "sm",
+        "spacing": "md",
         "contents": [
+            # 區塊標題列：玫瑰棕豎線 + 粗體標題
             {
-                "type": "text",
-                "text": title,
-                "weight": "bold",
-                "size": "md",
-                "color": FLEX_TEXT_COLOR,
+                "type": "box",
+                "layout": "horizontal",
+                "spacing": "sm",
+                "contents": [
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "width": "4px",
+                        "backgroundColor": FLEX_BLOCK_ACCENT,
+                        "cornerRadius": "4px",
+                        "contents": [{"type": "filler"}],
+                    },
+                    {
+                        "type": "text",
+                        "text": title,
+                        "weight": "bold",
+                        "size": "md",
+                        "color": FLEX_BLOCK_TITLE,
+                        "flex": 1,
+                        "gravity": "center",
+                    },
+                ],
             },
+            # 內文
             {
                 "type": "text",
                 "text": _truncate(body or "（無資料）", 520),
                 "size": "sm",
                 "color": FLEX_TEXT_COLOR,
                 "wrap": True,
+                "lineSpacing": "md",
             },
         ],
     }
