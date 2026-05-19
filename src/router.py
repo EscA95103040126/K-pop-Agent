@@ -11,7 +11,7 @@ ARTIST_PATTERNS = {
     "IVE": re.compile(r"\b(ive|아이브)\b", re.IGNORECASE),
     "NewJeans": re.compile(r"\b(newjeans|new jeans|뉴진스)\b", re.IGNORECASE),
 }
-WEEKLY_CHART_KEYWORDS = ("本週榜單", "本週 K-pop 榜單", "榜單", "chart")
+WEEKLY_CHART_KEYWORDS = ("本週榜單", "本週 K-pop 榜單", "本週Kpop榜單", "榜單", "chart")
 
 
 @dataclass(frozen=True)
@@ -70,5 +70,12 @@ def _extract_period_months(message: str) -> int:
 
 
 def _is_weekly_chart_request(message: str) -> bool:
-    normalized_message = message.casefold()
-    return any(keyword.casefold() in normalized_message for keyword in WEEKLY_CHART_KEYWORDS)
+    normalized_message = _normalize_chart_query(message)
+    return any(
+        _normalize_chart_query(keyword) in normalized_message
+        for keyword in WEEKLY_CHART_KEYWORDS
+    )
+
+
+def _normalize_chart_query(message: str) -> str:
+    return re.sub(r"[\s\-_]+", "", message.casefold())

@@ -17,7 +17,15 @@ def test_route_message_extracts_newjeans_alias() -> None:
 
 
 def test_route_message_detects_weekly_chart_requests() -> None:
-    for message in ("本週榜單", "本週 K-pop 榜單", "榜單", "chart"):
+    for message in (
+        "本週榜單",
+        "本週 K-pop 榜單",
+        "本週Kpop榜單",
+        "本週 kpop 榜單",
+        "本週K-pop榜單",
+        "榜單",
+        "chart",
+    ):
         intent = route_message(message)
 
         assert intent.name == "weekly_chart"
