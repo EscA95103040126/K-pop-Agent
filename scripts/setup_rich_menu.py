@@ -63,7 +63,7 @@ def _rich_menu_payload() -> dict:
         "areas": [
             {
                 "bounds": {"x": 0, "y": 0, "width": button_width, "height": RICH_MENU_SIZE[1]},
-                "action": {"type": "message", "text": "分析 "},
+                "action": {"type": "message", "text": "選擇藝人"},
             },
             {
                 "bounds": {

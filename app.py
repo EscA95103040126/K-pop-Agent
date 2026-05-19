@@ -7,6 +7,7 @@ from flask import Flask, abort, jsonify, request
 
 from src.agent import KpopAnalysisAgent
 from src.config import settings
+from src.router import route_message
 from src.tools.bugs_chart import fetch_bugs_weekly_chart
 from src.tools.naver_news import NaverNewsClient
 from src.utils.response_formatter import fit_line_text
@@ -19,8 +20,13 @@ try:
         Configuration,
         FlexContainer,
         FlexMessage,
+        MessageAction,
         MessagingApi,
+        QuickReply,
+        QuickReplyItem,
         ReplyMessageRequest,
+        ButtonsTemplate,
+        TemplateMessage,
         TextMessage,
     )
     from linebot.v3.webhooks import MessageEvent, TextMessageContent
@@ -31,8 +37,13 @@ except ImportError:  # pragma: no cover - lets local mock mode run without LINE 
     Configuration = None
     FlexContainer = None
     FlexMessage = None
+    MessageAction = None
     MessagingApi = None
+    QuickReply = None
+    QuickReplyItem = None
     ReplyMessageRequest = None
+    ButtonsTemplate = None
+    TemplateMessage = None
     TextMessage = None
     MessageEvent = None
     TextMessageContent = None
@@ -97,7 +108,7 @@ def webhook() -> tuple[str, int]:
         payload = request.get_json(silent=True) or {}
         message = _extract_mock_message(payload)
         if message:
-            report = fit_line_text(agent.analyze_message(message))
+            report = fit_line_text(agent.analyze_message_local(message))
             return jsonify({"mock_reply": report}).get_data(as_text=True), 200
         return "OK", 200
 
@@ -122,6 +133,9 @@ def _build_line_reply_message(report: str):
     if FlexMessage is None or FlexContainer is None:
         return TextMessage(text=fit_line_text(report))
 
+    if _is_weekly_chart_report(report):
+        return TextMessage(text=fit_line_text(report))
+
     try:
         flex_contents = agent.build_flex_message(report)
         return FlexMessage(
@@ -130,6 +144,133 @@ def _build_line_reply_message(report: str):
         )
     except Exception:
         return TextMessage(text=fit_line_text(report))
+
+
+def _build_artist_picker_message():
+    if TextMessage is None:
+        return None
+    if TemplateMessage is not None and ButtonsTemplate is not None and MessageAction is not None:
+        try:
+            return TemplateMessage(
+                altText="選擇要分析的 K-pop 藝人",
+                template=ButtonsTemplate(
+                    title="選擇藝人",
+                    text="請選擇要產生分析報告的藝人。",
+                    actions=[
+                        MessageAction(label="aespa", text="分析 aespa"),
+                        MessageAction(label="IVE", text="分析 IVE"),
+                        MessageAction(label="NewJeans", text="分析 NewJeans"),
+                    ],
+                ),
+            )
+        except Exception:
+            logger.exception("Artist picker template build failed; falling back to text.")
+
+    if QuickReply is None or QuickReplyItem is None or MessageAction is None:
+        return TextMessage(text="請輸入：分析 aespa、分析 IVE、分析 NewJeans")
+
+    return TextMessage(
+        text="想分析哪位藝人？",
+        quickReply=QuickReply(
+            items=[
+                QuickReplyItem(action=MessageAction(label="aespa", text="分析 aespa")),
+                QuickReplyItem(action=MessageAction(label="IVE", text="分析 IVE")),
+                QuickReplyItem(action=MessageAction(label="NewJeans", text="分析 NewJeans")),
+            ]
+        ),
+    )
+
+
+def _artist_picker_flex_contents() -> dict:
+    return {
+        "type": "bubble",
+        "size": "mega",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#C4956A",
+            "paddingAll": "18px",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "K-pop Agent",
+                    "size": "xs",
+                    "color": "#FDEBD8",
+                },
+                {
+                    "type": "text",
+                    "text": "選擇藝人",
+                    "size": "xxl",
+                    "weight": "bold",
+                    "color": "#FFFFFF",
+                    "margin": "sm",
+                },
+            ],
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#FAF7F4",
+            "paddingAll": "18px",
+            "spacing": "md",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "請選擇要產生分析報告的藝人。",
+                    "size": "sm",
+                    "color": "#5C4033",
+                    "wrap": True,
+                },
+                _artist_picker_button("aespa", "分析 aespa"),
+                _artist_picker_button("IVE", "分析 IVE"),
+                _artist_picker_button("NewJeans", "分析 NewJeans"),
+            ],
+        },
+    }
+
+
+def _artist_picker_button(label: str, text: str) -> dict:
+    return {
+        "type": "button",
+        "style": "primary",
+        "height": "sm",
+        "color": "#8B5E52",
+        "action": {
+            "type": "message",
+            "label": label,
+            "text": text,
+        },
+    }
+
+
+def _build_help_message():
+    return TextMessage(
+        text=(
+            "你可以這樣問我：\n"
+            "1. 分析 aespa\n"
+            "2. 分析 IVE\n"
+            "3. 分析 NewJeans\n"
+            "4. 本週 K-pop 榜單"
+        )
+    )
+
+
+def _is_artist_picker_request(message: str) -> bool:
+    normalized = message.strip().casefold()
+    return normalized in {"分析", "分析藝人", "選擇藝人", "artist", "藝人"}
+
+
+def _is_help_request(message: str) -> bool:
+    return message.strip() in {"使用說明", "help", "Help", "HELP"}
+
+
+def _is_supported_artist_analysis(message: str) -> bool:
+    intent = route_message(message)
+    return intent.name != "weekly_chart" and intent.artist in {"aespa", "IVE", "NewJeans"}
+
+
+def _is_weekly_chart_report(report: str) -> bool:
+    return report.lstrip().startswith("# 本週 K-pop 榜單")
 
 
 def _mode(is_mock: bool) -> str:
@@ -189,12 +330,29 @@ if line_handler is not None and MessageEvent is not None and TextMessageContent 
     @line_handler.add(MessageEvent, message=TextMessageContent)
     def handle_text_message(event: MessageEvent) -> None:
         user_text = event.message.text
-        report = agent.analyze_message(user_text)
         if not line_configuration:
             return
         with ApiClient(line_configuration) as api_client:
             line_bot_api = MessagingApi(api_client)
-            reply_message = _build_line_reply_message(report)
+            if _is_artist_picker_request(user_text):
+                reply_message = _build_artist_picker_message()
+                fallback_text = "請輸入：分析 aespa、分析 IVE、分析 NewJeans"
+            elif _is_help_request(user_text):
+                reply_message = _build_help_message()
+                fallback_text = reply_message.text
+            else:
+                if not _is_supported_artist_analysis(user_text) and route_message(user_text).name != "weekly_chart":
+                    reply_message = _build_artist_picker_message()
+                    fallback_text = "目前 demo 版先支援 aespa、IVE、NewJeans。請選擇要分析的藝人。"
+                    report = ""
+                else:
+                    report = agent.analyze_message_local(user_text)
+                    reply_message = _build_line_reply_message(report)
+                    fallback_text = fit_line_text(report)
+
+            if reply_message is None:
+                return
+
             try:
                 line_bot_api.reply_message(
                     ReplyMessageRequest(
@@ -208,7 +366,7 @@ if line_handler is not None and MessageEvent is not None and TextMessageContent 
                     line_bot_api.reply_message(
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
-                            messages=[TextMessage(text=fit_line_text(report))],
+                            messages=[TextMessage(text=fallback_text)],
                         )
                     )
                 except Exception as fallback_exc:

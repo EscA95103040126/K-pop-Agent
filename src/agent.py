@@ -18,6 +18,12 @@ _SENTIMENT_FALLBACK: dict = {
     "top_keywords": [],
     "summary": "Tool D 尚未取得足夠評論樣本。",
 }
+SUPPORTED_ARTISTS = ("aespa", "IVE", "NewJeans")
+LOCAL_SUMMARIES = {
+    "aespa": "aespa 近期仍具高話題度，雖然榜單排名有短期波動，但作品聲量與粉絲討論維持穩定。",
+    "IVE": "IVE 目前榜單表現進入調整期，但成員個人影響力與粉絲討論仍能支撐穩定曝光。",
+    "NewJeans": "NewJeans 近期榜單資料較少，但既有熱門作品仍維持長尾聆聽與品牌辨識度。",
+}
 # 韓式 ins 風格：奶油白 × 玫瑰棕
 FLEX_HEADER_BG        = "#C4956A"   # 玫瑰棕
 FLEX_HEADER_TEXT      = "#FFFFFF"   # 白色
@@ -54,6 +60,17 @@ class KpopAnalysisAgent:
         chart = self.chart_repo.get_artist_trend(intent.artist, weeks=intent.period_months * 4)
         sentiment = self._fetch_sentiment(intent.artist)
         return self.generate_report(intent=intent, news=news, chart=chart, sentiment=sentiment)
+
+    def analyze_message_local(self, message: str) -> str:
+        intent = route_message(message)
+        if intent.name == "weekly_chart":
+            return self.generate_weekly_chart_report()
+        if intent.artist not in SUPPORTED_ARTISTS:
+            return _unsupported_artist_message(intent.artist)
+
+        chart = self.chart_repo.get_artist_trend(intent.artist, weeks=intent.period_months * 4)
+        sentiment = self._fetch_sentiment(intent.artist)
+        return self._generate_local_report(intent=intent, chart=chart, sentiment=sentiment)
 
     def build_flex_message(self, report: str) -> dict[str, Any]:
         return build_report_flex(report)
@@ -147,6 +164,50 @@ class KpopAnalysisAgent:
 
 ## 5. 一句話總結
 {intent.artist} 近期可由榜單穩定度與新聞聲量觀察市場表現，後續可加入情感分析補足粉絲反應細節。
+"""
+
+    def _generate_local_report(
+        self,
+        intent: Intent,
+        chart: dict[str, Any],
+        sentiment: dict,
+    ) -> str:
+        s = sentiment.get("sentiment", {})
+        positive = s.get("positive", 0)
+        neutral = s.get("neutral", 0)
+        negative = s.get("negative", 0)
+        keywords = "、".join(sentiment.get("top_keywords", [])[:5]) or "（無資料）"
+        best_rank = chart.get("best_rank", "N/A")
+        market_heat = _market_heat(best_rank)
+        risk = _sentiment_risk(negative)
+        summary = LOCAL_SUMMARIES.get(intent.artist, f"{intent.artist} 目前資料量有限，建議持續觀察榜單與粉絲反應。")
+
+        return f"""# {intent.artist} 近期市場與輿論分析
+
+## 1. 榜單表現
+- 最近 {intent.period_months * 4} 週最高排名：{best_rank}
+- 平均排名：{chart.get("avg_rank", "N/A")}
+- 上榜週數：{chart.get("weeks_on_chart", "N/A")}
+- 排名趨勢：{chart.get("trend", "資料不足")}
+
+## 2. 新聞事件脈絡
+- 近期主要事件：本地 demo 模式先以 Bugs 週榜與韓文評論樣本作為分析依據。
+- 事件類型：榜單 / 粉絲反應 / 市場觀察
+
+## 3. 粉絲與輿論反應
+- 正面比例：{positive}
+- 中立比例：{neutral}
+- 負面比例：{negative}
+- 主要情緒關鍵字：{keywords}
+- 簡短解讀：{sentiment.get("summary", "評論樣本不足，需補充更多資料。")}
+
+## 4. 綜合判斷
+- 市場熱度：{market_heat}
+- 輿論風險：{risk}
+- 短期趨勢：{_local_trend_sentence(intent.artist, chart)}
+
+## 5. 一句話總結
+{summary}
 """
 
     def _build_prompt(
@@ -359,6 +420,49 @@ def _truncate(text: str, max_length: int) -> str:
     if len(text) <= max_length:
         return text
     return text[: max_length - 1].rstrip() + "…"
+
+
+def _unsupported_artist_message(artist: str) -> str:
+    return (
+        "目前 demo 版先支援 aespa、IVE、NewJeans 三組藝人。\n"
+        "請輸入：分析 aespa、分析 IVE、分析 NewJeans。"
+    )
+
+
+def _market_heat(best_rank: Any) -> str:
+    try:
+        rank = int(best_rank)
+    except (TypeError, ValueError):
+        return "資料不足"
+    if rank <= 20:
+        return "高"
+    if rank <= 60:
+        return "中"
+    return "低"
+
+
+def _sentiment_risk(negative_ratio: Any) -> str:
+    try:
+        negative = float(negative_ratio)
+    except (TypeError, ValueError):
+        return "資料不足"
+    if negative >= 0.4:
+        return "高"
+    if negative >= 0.25:
+        return "中"
+    return "低"
+
+
+def _local_trend_sentence(artist: str, chart: dict[str, Any]) -> str:
+    trend = chart.get("trend", "資料不足")
+    weeks = chart.get("weeks_on_chart", 0)
+    if trend == "上升":
+        return f"{artist} 近期排名有上升跡象，可觀察後續作品與活動是否延續聲量。"
+    if trend == "下降":
+        return f"{artist} 近期榜單排名偏向下修，但仍有 {weeks} 筆週榜資料可作為追蹤基礎。"
+    if trend == "持平":
+        return f"{artist} 近期榜單變化相對穩定，短期熱度以維持既有聲量為主。"
+    return f"{artist} 目前榜單樣本較少，短期趨勢需等待更多週榜資料確認。"
 
 
 def _format_rank_change(change_rank: int) -> str:
