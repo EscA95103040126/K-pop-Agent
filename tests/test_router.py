@@ -14,3 +14,11 @@ def test_route_message_extracts_newjeans_alias() -> None:
 
     assert intent.artist == "NewJeans"
     assert intent.name == "artist_sentiment_context"
+
+
+def test_route_message_detects_weekly_chart_requests() -> None:
+    for message in ("本週榜單", "本週 K-pop 榜單", "榜單", "chart"):
+        intent = route_message(message)
+
+        assert intent.name == "weekly_chart"
+        assert intent.artist == ""

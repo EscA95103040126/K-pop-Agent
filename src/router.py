@@ -11,6 +11,7 @@ ARTIST_PATTERNS = {
     "IVE": re.compile(r"\b(ive|아이브)\b", re.IGNORECASE),
     "NewJeans": re.compile(r"\b(newjeans|new jeans|뉴진스)\b", re.IGNORECASE),
 }
+WEEKLY_CHART_KEYWORDS = ("本週榜單", "本週 K-pop 榜單", "榜單", "chart")
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,14 @@ class Intent:
 
 
 def route_message(message: str) -> Intent:
+    if _is_weekly_chart_request(message):
+        return Intent(
+            name="weekly_chart",
+            artist="",
+            period_months=3,
+            raw_text=message,
+        )
+
     artist = _extract_artist(message)
     period_months = _extract_period_months(message)
 
@@ -58,3 +67,8 @@ def _extract_period_months(message: str) -> int:
     if "半年" in message or "六個月" in message or "6個月" in message:
         return 6
     return 3
+
+
+def _is_weekly_chart_request(message: str) -> bool:
+    normalized_message = message.casefold()
+    return any(keyword.casefold() in normalized_message for keyword in WEEKLY_CHART_KEYWORDS)

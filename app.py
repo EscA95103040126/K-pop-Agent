@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sqlite3
 
 from flask import Flask, abort, jsonify, request
@@ -39,6 +40,7 @@ except ImportError:  # pragma: no cover - lets local mock mode run without LINE 
 
 app = Flask(__name__)
 agent = KpopAnalysisAgent()
+logger = logging.getLogger(__name__)
 
 line_handler = (
     WebhookHandler(settings.line_channel_secret)
@@ -192,12 +194,25 @@ if line_handler is not None and MessageEvent is not None and TextMessageContent 
             return
         with ApiClient(line_configuration) as api_client:
             line_bot_api = MessagingApi(api_client)
-            line_bot_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=event.reply_token,
-                    messages=[_build_line_reply_message(report)],
+            reply_message = _build_line_reply_message(report)
+            try:
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[reply_message],
+                    )
                 )
-            )
+            except Exception as exc:
+                logger.warning("Flex reply failed; retrying with text fallback: %s", exc)
+                try:
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text=fit_line_text(report))],
+                        )
+                    )
+                except Exception as fallback_exc:
+                    logger.exception("LINE reply failed: %s", fallback_exc)
 
 
 if __name__ == "__main__":

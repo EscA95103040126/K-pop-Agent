@@ -36,3 +36,27 @@ def test_chart_db_insert_chart_rows_is_idempotent(tmp_path: Path) -> None:
 
     assert repo.insert_chart_rows(rows) == 1
     assert repo.insert_chart_rows(rows) == 0
+
+
+def test_chart_db_returns_latest_weekly_chart(tmp_path: Path) -> None:
+    db_path = tmp_path / "chart_history.db"
+    repo = ChartHistoryRepository(db_path=db_path)
+    rows = [
+        {
+            "fetch_date": "2026-05-18",
+            "chart_date": "2026-05-11",
+            "source": "bugs",
+            "chart_type": "weekly",
+            "rank": 1,
+            "title": "REDRED",
+            "artist": "CORTIS (코르티스)",
+            "album": "GREENGREEN",
+            "change_rank": 2,
+        }
+    ]
+    repo.insert_chart_rows(rows)
+
+    result = repo.get_latest_weekly_chart()
+
+    assert result["chart_date"] == "2026-05-11"
+    assert result["items"][0]["title"] == "REDRED"

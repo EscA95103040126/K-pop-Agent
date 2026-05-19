@@ -11,10 +11,12 @@ from PIL import Image, ImageDraw, ImageFont
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RICH_MENU_SIZE = (2500, 843)
-BACKGROUND_COLOR = "#1E1E1E"
-TEXT_COLOR = "#FFFFFF"
+BACKGROUND_COLOR = "#FAF7F4"
+DIVIDER_COLOR = "#E8D5C4"
+TEXT_COLOR = "#8B5E52"
 LINE_API_BASE = "https://api.line.me/v2/bot"
 LINE_DATA_API_BASE = "https://api-data.line.me/v2/bot"
+EMOJI_FONT_PATH = "/System/Library/Fonts/Apple Color Emoji.ttc"
 
 
 def main() -> None:
@@ -88,34 +90,45 @@ def _rich_menu_payload() -> dict:
 def _create_rich_menu_image() -> Path:
     image = Image.new("RGB", RICH_MENU_SIZE, BACKGROUND_COLOR)
     draw = ImageDraw.Draw(image)
-    font = _load_font(78)
-    sub_font = _load_font(36)
+    emoji_font = _load_emoji_font(80)
+    title_font = _load_text_font(70)
     labels = [
-        ("🔍", "分析藝人", "分析 "),
-        ("📊", "本週榜單", "本週 K-pop 榜單"),
-        ("ℹ️", "使用說明", "使用說明"),
+        ("🔍", "分析藝人"),
+        ("📊", "本週榜單"),
+        ("ℹ️", "使用說明"),
     ]
     button_width = RICH_MENU_SIZE[0] // 3
 
-    for index, (icon, title, subtitle) in enumerate(labels):
+    for index, (icon, title) in enumerate(labels):
         x0 = button_width * index
         x1 = RICH_MENU_SIZE[0] if index == 2 else button_width * (index + 1)
         center_x = (x0 + x1) // 2
         if index > 0:
-            draw.line((x0, 90, x0, RICH_MENU_SIZE[1] - 90), fill="#3A3A3A", width=4)
+            draw.line((x0, 110, x0, RICH_MENU_SIZE[1] - 110), fill=DIVIDER_COLOR, width=5)
 
-        title_text = f"{icon} {title}"
-        _draw_centered_text(draw, title_text, center_x, 330, font)
-        _draw_centered_text(draw, subtitle, center_x, 450, sub_font)
+        _draw_centered_text(draw, icon, center_x, 230, emoji_font)
+        _draw_centered_text(draw, title, center_x, 430, title_font)
 
     output_path = Path(tempfile.gettempdir()) / "kpop_agent_rich_menu.png"
     image.save(output_path, "PNG")
     return output_path
 
 
-def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+def _load_emoji_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    if Path(EMOJI_FONT_PATH).exists():
+        for candidate_size in (size, 160, 128, 109, 96, 80, 64, 48, 32):
+            try:
+                return ImageFont.truetype(EMOJI_FONT_PATH, size=candidate_size)
+            except OSError:
+                continue
+    return ImageFont.load_default()
+
+
+def _load_text_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     candidates = [
+        "/System/Library/Fonts/STHeiti Medium.ttc",
         "/System/Library/Fonts/PingFang.ttc",
+        "/System/Library/Fonts/Supplemental/Songti.ttc",
         "/System/Library/Fonts/Supplemental/AppleGothic.ttf",
         "/Library/Fonts/Arial Unicode.ttf",
     ]

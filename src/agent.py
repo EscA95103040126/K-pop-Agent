@@ -48,6 +48,8 @@ class KpopAnalysisAgent:
 
     def analyze_message(self, message: str) -> str:
         intent = route_message(message)
+        if intent.name == "weekly_chart":
+            return self.generate_weekly_chart_report()
         news = self.news_client.search(intent.artist)
         chart = self.chart_repo.get_artist_trend(intent.artist, weeks=intent.period_months * 4)
         sentiment = self._fetch_sentiment(intent.artist)
@@ -55,6 +57,26 @@ class KpopAnalysisAgent:
 
     def build_flex_message(self, report: str) -> dict[str, Any]:
         return build_report_flex(report)
+
+    def generate_weekly_chart_report(self, limit: int = 10) -> str:
+        chart = self.chart_repo.get_latest_weekly_chart(limit=limit)
+        items = chart.get("items", [])
+        if not items:
+            return "# 本週 K-pop 榜單\n\n目前沒有可用的 Bugs 週榜資料。"
+
+        lines = [
+            "# 本週 K-pop 榜單",
+            "",
+            f"資料來源：Bugs 週榜",
+            f"榜單日期：{chart.get('chart_date', '未知')}",
+            "",
+        ]
+        for item in items:
+            change = _format_rank_change(item.get("change_rank", 0))
+            lines.append(
+                f"{item['rank']}. {item['title']} - {item['artist']} ({change})"
+            )
+        return "\n".join(lines)
 
     def _fetch_sentiment(self, artist_name: str) -> dict:
         try:
@@ -301,7 +323,6 @@ def _flex_block(title: str, body: str) -> dict[str, Any]:
                 "size": "sm",
                 "color": FLEX_TEXT_COLOR,
                 "wrap": True,
-                "lineSpacing": "md",
             },
         ],
     }
@@ -338,3 +359,11 @@ def _truncate(text: str, max_length: int) -> str:
     if len(text) <= max_length:
         return text
     return text[: max_length - 1].rstrip() + "…"
+
+
+def _format_rank_change(change_rank: int) -> str:
+    if change_rank > 0:
+        return f"▲{change_rank}"
+    if change_rank < 0:
+        return f"▼{abs(change_rank)}"
+    return "-"
