@@ -29,6 +29,7 @@ class Settings:
     naver_client_secret: str | None = os.getenv("NAVER_CLIENT_SECRET") or None
     gemini_api_key: str | None = os.getenv("GEMINI_API_KEY") or None
     gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+    youtube_api_key: str | None = os.getenv("YOUTUBE_API_KEY") or None
     line_channel_access_token: str | None = os.getenv("LINE_CHANNEL_ACCESS_TOKEN") or None
     line_channel_secret: str | None = os.getenv("LINE_CHANNEL_SECRET") or None
     port: int = int(os.getenv("PORT", "5000"))

@@ -5,7 +5,7 @@ import sqlite3
 
 from flask import Flask, abort, jsonify, request
 
-from src.agent import KpopAnalysisAgent
+from src.agent import KpopAnalysisAgent, SUPPORTED_ARTISTS
 from src.config import settings
 from src.router import route_message
 from src.tools.bugs_chart import fetch_bugs_weekly_chart
@@ -90,12 +90,34 @@ def analyze() -> tuple[dict, int]:
         message = f"分析 {artist}"
     if not message:
         return {"error": "message or artist is required"}, 400
-    report = agent.analyze_message(message)
-    response = {"report": report}
-    try:
-        response["flex"] = agent.build_flex_message(report)
-    except Exception:
-        response["flex"] = None
+    intent = route_message(message)
+    if intent.name == "weekly_chart":
+        chart_cache = agent.get_weekly_chart_cache()
+        response = {
+            "report": chart_cache["report"],
+            "cache": {
+                "type": "weekly_chart",
+                "cached_at": chart_cache["cached_at"],
+            },
+            "flex": None,
+        }
+    elif intent.artist in SUPPORTED_ARTISTS:
+        artist_cache = agent.get_artist_cache(
+            intent.artist,
+            period_months=intent.period_months,
+        )
+        response = {
+            "report": artist_cache["report"],
+            "cache": {
+                "type": "artist",
+                "artist": artist_cache["artist"],
+                "cached_at": artist_cache["cached_at"],
+            },
+            "flex": artist_cache["flex"],
+        }
+    else:
+        report = agent.analyze_message_local(message)
+        response = {"report": report, "flex": None}
     return response, 200
 
 
@@ -146,36 +168,40 @@ def _build_line_reply_message(report: str):
         return TextMessage(text=fit_line_text(report))
 
 
+def _build_line_flex_message(flex_contents: dict, alt_text: str = "K-pop 분석 보고서"):
+    if FlexMessage is None or FlexContainer is None:
+        return TextMessage(text=alt_text)
+    try:
+        return FlexMessage(
+            altText=alt_text,
+            contents=FlexContainer.from_dict(flex_contents),
+        )
+    except Exception:
+        logger.exception("Cached Flex build failed; falling back to text.")
+        return TextMessage(text=alt_text)
+
+
 def _build_artist_picker_message():
     if TextMessage is None:
         return None
-    if TemplateMessage is not None and ButtonsTemplate is not None and MessageAction is not None:
+    if FlexMessage is not None and FlexContainer is not None:
         try:
-            return TemplateMessage(
+            return FlexMessage(
                 altText="選擇要分析的 K-pop 藝人",
-                template=ButtonsTemplate(
-                    title="選擇藝人",
-                    text="請選擇要產生分析報告的藝人。",
-                    actions=[
-                        MessageAction(label="aespa", text="分析 aespa"),
-                        MessageAction(label="IVE", text="分析 IVE"),
-                        MessageAction(label="NewJeans", text="分析 NewJeans"),
-                    ],
-                ),
+                contents=FlexContainer.from_dict(_artist_picker_flex_contents()),
             )
         except Exception:
-            logger.exception("Artist picker template build failed; falling back to text.")
+            logger.exception("Artist picker Flex build failed; falling back to text.")
 
     if QuickReply is None or QuickReplyItem is None or MessageAction is None:
-        return TextMessage(text="請輸入：分析 aespa、分析 IVE、分析 NewJeans")
+        return TextMessage(text=f"請輸入：分析 {SUPPORTED_ARTISTS[0]}，或使用預載藝人名稱。")
 
     return TextMessage(
         text="想分析哪位藝人？",
         quickReply=QuickReply(
             items=[
-                QuickReplyItem(action=MessageAction(label="aespa", text="分析 aespa")),
-                QuickReplyItem(action=MessageAction(label="IVE", text="分析 IVE")),
-                QuickReplyItem(action=MessageAction(label="NewJeans", text="分析 NewJeans")),
+                QuickReplyItem(action=MessageAction(label=artist, text=f"分析 {artist}"))
+                for artist in SUPPORTED_ARTISTS
             ]
         ),
     )
@@ -216,14 +242,15 @@ def _artist_picker_flex_contents() -> dict:
             "contents": [
                 {
                     "type": "text",
-                    "text": "請選擇要產生分析報告的藝人。",
+                    "text": "請選擇要產生分析報告的藝人，或直接輸入「分析 藝人名」。",
                     "size": "sm",
                     "color": "#5C4033",
                     "wrap": True,
                 },
-                _artist_picker_button("aespa", "分析 aespa"),
-                _artist_picker_button("IVE", "分析 IVE"),
-                _artist_picker_button("NewJeans", "分析 NewJeans"),
+                *[
+                    _artist_picker_button(artist, f"分析 {artist}")
+                    for artist in SUPPORTED_ARTISTS
+                ],
             ],
         },
     }
@@ -246,11 +273,13 @@ def _artist_picker_button(label: str, text: str) -> dict:
 def _build_help_message():
     return TextMessage(
         text=(
-            "你可以這樣問我：\n"
-            "1. 分析 aespa\n"
-            "2. 分析 IVE\n"
-            "3. 分析 NewJeans\n"
-            "4. 本週 K-pop 榜單"
+            "📖 使用說明\n\n"
+            "🔍 分析藝人\n"
+            "輸入「分析 藝人名」\n"
+            "例如：分析 aespa、分析 IVE、分析 BABYMONSTER\n\n"
+            "📊 本週榜單\n"
+            "點選「本週榜單」查看 Bugs 週榜 Top 10\n\n"
+            "如有其他問題歡迎直接輸入！"
         )
     )
 
@@ -266,7 +295,7 @@ def _is_help_request(message: str) -> bool:
 
 def _is_supported_artist_analysis(message: str) -> bool:
     intent = route_message(message)
-    return intent.name != "weekly_chart" and intent.artist in {"aespa", "IVE", "NewJeans"}
+    return intent.name != "weekly_chart" and intent.artist in SUPPORTED_ARTISTS
 
 
 def _is_weekly_chart_report(report: str) -> bool:
@@ -343,12 +372,26 @@ if line_handler is not None and MessageEvent is not None and TextMessageContent 
             else:
                 if not _is_supported_artist_analysis(user_text) and route_message(user_text).name != "weekly_chart":
                     reply_message = _build_artist_picker_message()
-                    fallback_text = "目前 demo 版先支援 aespa、IVE、NewJeans。請選擇要分析的藝人。"
+                    fallback_text = "目前 demo 版先支援 aespa、IVE、BABYMONSTER 等預載藝人。請選擇或輸入要分析的藝人。"
                     report = ""
                 else:
-                    report = agent.analyze_message_local(user_text)
-                    reply_message = _build_line_reply_message(report)
-                    fallback_text = fit_line_text(report)
+                    intent = route_message(user_text)
+                    if intent.name == "weekly_chart":
+                        chart_cache = agent.get_weekly_chart_cache()
+                        report = chart_cache["report"]
+                        reply_message = _build_line_reply_message(report)
+                        fallback_text = fit_line_text(report)
+                    else:
+                        artist_cache = agent.get_artist_cache(
+                            intent.artist,
+                            period_months=intent.period_months,
+                        )
+                        report = artist_cache["report"]
+                        reply_message = _build_line_flex_message(
+                            artist_cache["flex"],
+                            alt_text=f"{artist_cache['artist']} K-pop 分析報告",
+                        )
+                        fallback_text = fit_line_text(report)
 
             if reply_message is None:
                 return

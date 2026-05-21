@@ -20,8 +20,19 @@ def normalize_artist(value: str) -> str:
     aliases = {
         "에스파": "aespa",
         "아이브": "IVE",
-        "뉴진스": "NewJeans",
-        "new jeans": "NewJeans",
+        "베이비몬스터": "BABYMONSTER",
+        "baby monster": "BABYMONSTER",
+        "엔믹스": "NMIXX",
+        "아일릿": "ILLIT",
+        "엔시티": "NCT",
+        "제로베이스원": "ZEROBASEONE",
+        "zero base one": "ZEROBASEONE",
+        "zb1": "ZEROBASEONE",
+        "투모로우바이투게더": "TXT",
+        "tomorrow x together": "TXT",
+        "엔하이픈": "ENHYPEN",
+        "보이넥스트도어": "BOYNEXTDOOR",
+        "boy next door": "BOYNEXTDOOR",
     }
     compact = WHITESPACE_RE.sub(" ", value).strip()
     return aliases.get(compact.lower(), compact)

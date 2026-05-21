@@ -9,7 +9,14 @@ from src.utils.text_cleaner import normalize_artist
 ARTIST_PATTERNS = {
     "aespa": re.compile(r"\b(aespa|에스파)\b", re.IGNORECASE),
     "IVE": re.compile(r"\b(ive|아이브)\b", re.IGNORECASE),
-    "NewJeans": re.compile(r"\b(newjeans|new jeans|뉴진스)\b", re.IGNORECASE),
+    "BABYMONSTER": re.compile(r"\b(babymonster|baby monster|베이비몬스터)\b", re.IGNORECASE),
+    "NMIXX": re.compile(r"\b(nmixx|엔믹스)\b", re.IGNORECASE),
+    "ILLIT": re.compile(r"\b(illit|아일릿)\b", re.IGNORECASE),
+    "NCT": re.compile(r"\b(nct|엔시티)\b", re.IGNORECASE),
+    "ZEROBASEONE": re.compile(r"\b(zerobaseone|zero base one|zb1|제로베이스원)\b", re.IGNORECASE),
+    "TXT": re.compile(r"\b(txt|투모로우바이투게더|tomorrow x together)\b", re.IGNORECASE),
+    "ENHYPEN": re.compile(r"\b(enhypen|엔하이픈)\b", re.IGNORECASE),
+    "BOYNEXTDOOR": re.compile(r"\b(boynextdoor|boy next door|보이넥스트도어)\b", re.IGNORECASE),
 }
 WEEKLY_CHART_KEYWORDS = ("本週榜單", "本週 K-pop 榜單", "本週Kpop榜單", "榜單", "chart")
 

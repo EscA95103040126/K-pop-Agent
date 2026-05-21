@@ -10,10 +10,17 @@ def test_route_message_extracts_artist_and_period() -> None:
 
 
 def test_route_message_extracts_newjeans_alias() -> None:
-    intent = route_message("NewJeans 最近的輿論風向是什麼？")
+    intent = route_message("BABYMONSTER 最近的輿論風向是什麼？")
 
-    assert intent.artist == "NewJeans"
+    assert intent.artist == "BABYMONSTER"
     assert intent.name == "artist_sentiment_context"
+
+
+def test_route_message_detects_korean_analysis_request() -> None:
+    intent = route_message("ZEROBASEONE 분석")
+
+    assert intent.artist == "ZEROBASEONE"
+    assert intent.name == "artist_analysis"
 
 
 def test_route_message_detects_weekly_chart_requests() -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -18,11 +19,35 @@ _SENTIMENT_FALLBACK: dict = {
     "top_keywords": [],
     "summary": "Tool D 尚未取得足夠評論樣本。",
 }
-SUPPORTED_ARTISTS = ("aespa", "IVE", "NewJeans")
+DEMO_ARTISTS = (
+    "aespa",
+    "IVE",
+    "BABYMONSTER",
+    "NMIXX",
+    "ILLIT",
+    "NCT",
+    "ZEROBASEONE",
+    "TXT",
+    "ENHYPEN",
+    "BOYNEXTDOOR",
+)
+SUPPORTED_ARTISTS = DEMO_ARTISTS
+CACHE_DIR = settings.base_dir / "data" / "cache"
+ARTIST_CACHE_DIR = CACHE_DIR / "artists"
+CHART_CACHE_DIR = CACHE_DIR / "chart"
+WEEKLY_CHART_CACHE_PATH = CHART_CACHE_DIR / "weekly.json"
+CHART_CACHE_TTL = timedelta(hours=24)
 LOCAL_SUMMARIES = {
     "aespa": "aespa 近期仍具高話題度，雖然榜單排名有短期波動，但作品聲量與粉絲討論維持穩定。",
     "IVE": "IVE 目前榜單表現進入調整期，但成員個人影響力與粉絲討論仍能支撐穩定曝光。",
-    "NewJeans": "NewJeans 近期榜單資料較少，但既有熱門作品仍維持長尾聆聽與品牌辨識度。",
+    "BABYMONSTER": "BABYMONSTER 仍處於聲量累積期，榜單表現與粉絲反應適合持續追蹤。",
+    "NMIXX": "NMIXX 近期音樂風格辨識度明確，市場熱度可透過榜單與粉絲討論同步觀察。",
+    "ILLIT": "ILLIT 近期作品具備年輕族群討論度，後續可觀察榜單續航與粉絲口碑變化。",
+    "NCT": "NCT 具備穩定核心粉絲與高討論度，短期聲量可由影片留言與新聞曝光觀察。",
+    "ZEROBASEONE": "ZEROBASEONE 仍維持強粉絲動員力，適合觀察回歸期留言熱度與榜單變化。",
+    "TXT": "TXT 具備海外與韓國雙市場聲量，短期趨勢可由新曲討論與週榜資料交叉判讀。",
+    "ENHYPEN": "ENHYPEN 的全球粉絲動能明顯，影片留言反應可作為近期熱度的重要參考。",
+    "BOYNEXTDOOR": "BOYNEXTDOOR 仍在擴張受眾階段，粉絲留言與榜單露出可觀察成長動能。",
 }
 # 韓式 ins 風格：奶油白 × 玫瑰棕
 FLEX_HEADER_BG        = "#C4956A"   # 玫瑰棕
@@ -64,16 +89,77 @@ class KpopAnalysisAgent:
     def analyze_message_local(self, message: str) -> str:
         intent = route_message(message)
         if intent.name == "weekly_chart":
-            return self.generate_weekly_chart_report()
+            return self.get_weekly_chart_cache()["report"]
         if intent.artist not in SUPPORTED_ARTISTS:
             return _unsupported_artist_message(intent.artist)
 
-        chart = self.chart_repo.get_artist_trend(intent.artist, weeks=intent.period_months * 4)
-        sentiment = self._fetch_sentiment(intent.artist)
-        return self._generate_local_report(intent=intent, chart=chart, sentiment=sentiment)
+        return self.get_artist_cache(intent.artist, period_months=intent.period_months)["report"]
 
     def build_flex_message(self, report: str) -> dict[str, Any]:
         return build_report_flex(report)
+
+    def get_artist_cache(self, artist: str, period_months: int = 3) -> dict[str, Any]:
+        cache_path = artist_cache_path(artist)
+        if cache_path.exists():
+            return json.loads(cache_path.read_text(encoding="utf-8"))
+        return self.preload_artist_cache(artist=artist, period_months=period_months)
+
+    def preload_artist_cache(self, artist: str, period_months: int = 3) -> dict[str, Any]:
+        ARTIST_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        intent = Intent(
+            name="artist_analysis",
+            artist=artist,
+            period_months=period_months,
+            raw_text=f"分析 {artist}",
+        )
+        news = self.news_client.search(artist)
+        chart = self.chart_repo.get_artist_trend(artist, weeks=period_months * 4)
+        sentiment = self._fetch_sentiment(artist)
+        report = self._generate_local_report(
+            intent=intent,
+            chart=chart,
+            sentiment=sentiment,
+            news=news,
+        )
+        payload = {
+            "cached_at": _now_iso(),
+            "artist": artist,
+            "period_months": period_months,
+            "report": report,
+            "flex": self.build_flex_message(report),
+            "sources": {
+                "chart": chart,
+                "news": news[:5],
+                "sentiment": sentiment,
+            },
+        }
+        artist_cache_path(artist).write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        return payload
+
+    def get_weekly_chart_cache(self, limit: int = 10) -> dict[str, Any]:
+        if WEEKLY_CHART_CACHE_PATH.exists():
+            payload = json.loads(WEEKLY_CHART_CACHE_PATH.read_text(encoding="utf-8"))
+            if _is_fresh(payload.get("cached_at"), max_age=CHART_CACHE_TTL):
+                return payload
+        return self.preload_weekly_chart_cache(limit=limit)
+
+    def preload_weekly_chart_cache(self, limit: int = 10) -> dict[str, Any]:
+        CHART_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        chart = self.chart_repo.get_latest_weekly_chart(limit=limit)
+        report = self.generate_weekly_chart_report(limit=limit)
+        payload = {
+            "cached_at": _now_iso(),
+            "chart": chart,
+            "report": report,
+        }
+        WEEKLY_CHART_CACHE_PATH.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        return payload
 
     def generate_weekly_chart_report(self, limit: int = 10) -> str:
         chart = self.chart_repo.get_latest_weekly_chart(limit=limit)
@@ -171,6 +257,7 @@ class KpopAnalysisAgent:
         intent: Intent,
         chart: dict[str, Any],
         sentiment: dict,
+        news: list[dict[str, Any]] | None = None,
     ) -> str:
         s = sentiment.get("sentiment", {})
         positive = s.get("positive", 0)
@@ -181,6 +268,7 @@ class KpopAnalysisAgent:
         market_heat = _market_heat(best_rank)
         risk = _sentiment_risk(negative)
         summary = LOCAL_SUMMARIES.get(intent.artist, f"{intent.artist} 目前資料量有限，建議持續觀察榜單與粉絲反應。")
+        news_titles = _format_news_titles(news or [])
 
         return f"""# {intent.artist} 近期市場與輿論分析
 
@@ -191,8 +279,8 @@ class KpopAnalysisAgent:
 - 排名趨勢：{chart.get("trend", "資料不足")}
 
 ## 2. 新聞事件脈絡
-- 近期主要事件：本地 demo 模式先以 Bugs 週榜與韓文評論樣本作為分析依據。
-- 事件類型：榜單 / 粉絲反應 / 市場觀察
+- 近期主要事件：{news_titles}
+- 事件類型：新聞 / 榜單 / 粉絲反應 / 市場觀察
 
 ## 3. 粉絲與輿論反應
 - 正面比例：{positive}
@@ -423,10 +511,41 @@ def _truncate(text: str, max_length: int) -> str:
 
 
 def _unsupported_artist_message(artist: str) -> str:
+    supported = "、".join(SUPPORTED_ARTISTS)
     return (
-        "目前 demo 版先支援 aespa、IVE、NewJeans 三組藝人。\n"
-        "請輸入：分析 aespa、分析 IVE、分析 NewJeans。"
+        f"目前 demo 版先支援：{supported}。\n"
+        "請輸入：分析 aespa、分析 IVE、分析 BABYMONSTER。"
     )
+
+
+def artist_cache_path(artist: str) -> Path:
+    return ARTIST_CACHE_DIR / f"{_cache_key(artist)}.json"
+
+
+def _cache_key(value: str) -> str:
+    key = re.sub(r"[^a-z0-9]+", "_", value.casefold()).strip("_")
+    return key or "unknown"
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _is_fresh(cached_at: str | None, max_age: timedelta) -> bool:
+    if not cached_at:
+        return False
+    try:
+        cached_time = datetime.fromisoformat(cached_at)
+    except ValueError:
+        return False
+    if cached_time.tzinfo is None:
+        cached_time = cached_time.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - cached_time <= max_age
+
+
+def _format_news_titles(news: list[dict[str, Any]]) -> str:
+    titles = [item.get("title", "").strip() for item in news[:3] if item.get("title")]
+    return "、".join(titles) if titles else "目前無可用新聞快取，先以榜單與留言資料判讀。"
 
 
 def _market_heat(best_rank: Any) -> str:

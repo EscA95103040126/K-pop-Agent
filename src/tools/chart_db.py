@@ -123,7 +123,15 @@ class ChartHistoryRepository:
         file_name = f"chart_{artist.lower().replace(' ', '_')}.json"
         mock_path = self.mock_data_dir / file_name
         if not mock_path.exists():
-            mock_path = self.mock_data_dir / "chart_aespa.json"
+            return {
+                "artist": artist,
+                "period": "資料不足",
+                "best_rank": "N/A",
+                "avg_rank": "N/A",
+                "weeks_on_chart": 0,
+                "trend": "資料不足",
+                "history": [],
+            }
         return json.loads(mock_path.read_text(encoding="utf-8"))
 
     def get_latest_weekly_chart(self, limit: int = 10) -> dict[str, Any]:
