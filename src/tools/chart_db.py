@@ -81,10 +81,9 @@ class ChartHistoryRepository:
                     SELECT chart_date, rank, title, artist, album, change_rank
                     FROM chart_history
                     WHERE lower(artist) LIKE ?
-                    ORDER BY chart_date DESC
-                    LIMIT ?
+                    ORDER BY chart_date DESC, rank ASC
                     """,
-                    (f"%{artist.lower()}%", weeks),
+                    (f"%{artist.lower()}%",),
                 ).fetchall()
         except sqlite3.Error:
             return self._load_mock(artist)
@@ -92,17 +91,40 @@ class ChartHistoryRepository:
         if not rows:
             return self._load_mock(artist)
 
-        history_desc = [dict(row) for row in rows]
-        history_asc = list(reversed(history_desc))
-        ranks = [row["rank"] for row in history_desc]
+        rows_by_date: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            item = dict(row)
+            rows_by_date.setdefault(item["chart_date"], []).append(item)
+
+        chart_dates_desc = sorted(rows_by_date, reverse=True)
+        if len(chart_dates_desc) == 1:
+            history = sorted(rows_by_date[chart_dates_desc[0]], key=lambda row: row["rank"])
+            ranks = [row["rank"] for row in history]
+            return {
+                "artist": artist,
+                "period": "本週",
+                "best_rank": min(ranks),
+                "avg_rank": round(mean(ranks), 2),
+                "weeks_on_chart": len(history),
+                "trend": "資料不足",
+                "history": history,
+            }
+
+        selected_dates_desc = chart_dates_desc[:weeks]
+        weekly_history_desc = [
+            min(rows_by_date[chart_date], key=lambda row: row["rank"])
+            for chart_date in selected_dates_desc
+        ]
+        history_asc = list(reversed(weekly_history_desc))
+        ranks = [row["rank"] for row in weekly_history_desc]
         return {
             "artist": artist,
             "period": f"{history_asc[0]['chart_date']} ～ {history_asc[-1]['chart_date']}",
             "best_rank": min(ranks),
             "avg_rank": round(mean(ranks), 2),
-            "weeks_on_chart": len(history_desc),
+            "weeks_on_chart": len(weekly_history_desc),
             "trend": self._calculate_trend(history_asc),
-            "history": history_desc,
+            "history": weekly_history_desc,
         }
 
     def _connect(self) -> sqlite3.Connection:

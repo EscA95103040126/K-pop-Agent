@@ -38,6 +38,69 @@ def test_chart_db_insert_chart_rows_is_idempotent(tmp_path: Path) -> None:
     assert repo.insert_chart_rows(rows) == 0
 
 
+def test_chart_db_single_week_multiple_songs_is_not_trend(tmp_path: Path) -> None:
+    db_path = tmp_path / "chart_history.db"
+    repo = ChartHistoryRepository(db_path=db_path)
+    rows = [
+        {
+            "fetch_date": "2026-05-18",
+            "chart_date": "2026-05-11",
+            "source": "bugs",
+            "chart_type": "weekly",
+            "rank": rank,
+            "title": title,
+            "artist": "aespa",
+            "album": title,
+            "change_rank": 0,
+        }
+        for rank, title in [(7, "WDA"), (30, "Whiplash"), (60, "Supernova")]
+    ]
+    repo.insert_chart_rows(rows)
+
+    result = repo.get_artist_trend("aespa", weeks=12)
+
+    assert result["period"] == "本週"
+    assert result["best_rank"] == 7
+    assert result["avg_rank"] == 32.33
+    assert result["weeks_on_chart"] == 3
+    assert result["trend"] == "資料不足"
+    assert [item["rank"] for item in result["history"]] == [7, 30, 60]
+
+
+def test_chart_db_multi_week_uses_best_rank_per_week(tmp_path: Path) -> None:
+    db_path = tmp_path / "chart_history.db"
+    repo = ChartHistoryRepository(db_path=db_path)
+    rows = []
+    for chart_date, ranked_titles in {
+        "2026-05-04": [(10, "Old Best"), (20, "Old Second")],
+        "2026-05-11": [(5, "New Best"), (15, "New Second")],
+    }.items():
+        for rank, title in ranked_titles:
+            rows.append(
+                {
+                    "fetch_date": "2026-05-18",
+                    "chart_date": chart_date,
+                    "source": "bugs",
+                    "chart_type": "weekly",
+                    "rank": rank,
+                    "title": title,
+                    "artist": "aespa",
+                    "album": title,
+                    "change_rank": 0,
+                }
+            )
+    repo.insert_chart_rows(rows)
+
+    result = repo.get_artist_trend("aespa", weeks=12)
+
+    assert result["period"] == "2026-05-04 ～ 2026-05-11"
+    assert result["best_rank"] == 5
+    assert result["avg_rank"] == 7.5
+    assert result["weeks_on_chart"] == 2
+    assert result["trend"] == "上升"
+    assert [item["rank"] for item in result["history"]] == [5, 10]
+
+
 def test_chart_db_returns_latest_weekly_chart(tmp_path: Path) -> None:
     db_path = tmp_path / "chart_history.db"
     repo = ChartHistoryRepository(db_path=db_path)

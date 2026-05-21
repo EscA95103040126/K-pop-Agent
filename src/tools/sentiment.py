@@ -31,7 +31,10 @@ def load_comments(csv_path: str | None = None) -> list[dict]:
 
     with path.open(encoding="utf-8", newline="") as file:
         reader = csv.DictReader(file)
-        if reader.fieldnames != REQUIRED_COLUMNS:
+        missing_columns = [
+            column for column in REQUIRED_COLUMNS if column not in (reader.fieldnames or [])
+        ]
+        if missing_columns:
             raise ValueError(f"CSV columns must be: {','.join(REQUIRED_COLUMNS)}")
         return [dict(row) for row in reader]
 
@@ -112,17 +115,21 @@ def analyze_sentiment_from_csv(artist_name: str, song: str | None = None) -> dic
         }
 
     counts: dict[str, int] = {"positive": 0, "neutral": 0, "negative": 0}
+    has_sentiment_column = all("sentiment" in row for row in comments)
 
     for row in comments:
-        text = row["comment"]
-        try:
-            label = classify_comment(text)
-        except Exception:
-            label = "neutral"
+        if has_sentiment_column:
+            label = (row.get("sentiment") or "").strip().casefold()
+        else:
+            text = row["comment"]
+            try:
+                label = classify_comment(text)
+            except Exception:
+                label = "neutral"
+            time.sleep(0.5)
         if label not in counts:
             label = "neutral"
         counts[label] += 1
-        time.sleep(0.5)
 
     sentiment = {k: round(v / total, 4) for k, v in counts.items()}
 

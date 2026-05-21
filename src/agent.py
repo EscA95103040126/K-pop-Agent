@@ -224,13 +224,14 @@ class KpopAnalysisAgent:
         news_titles = "、".join(item["title"] for item in news[:3]) or "暫無新聞資料"
         categories = sorted({item.get("category", "news") for item in news if item.get("category")})
         event_types = " / ".join(categories) if categories else "news"
+        chart_performance = _format_chart_performance_lines(
+            chart=chart,
+            weeks=intent.period_months * 4,
+        )
         return f"""# {intent.artist} 近期市場與輿論分析
 
 ## 1. 榜單表現
-- 最近 {intent.period_months * 4} 週最高排名：第 {chart.get("best_rank", "N/A")} 名
-- 平均排名：{chart.get("avg_rank", "N/A")}
-- 上榜週數：{chart.get("weeks_on_chart", "N/A")} 週
-- 排名趨勢：{chart.get("trend", "資料不足")}
+{chart_performance}
 
 ## 2. 新聞事件脈絡
 - 近期主要事件：{news_titles}
@@ -269,14 +270,15 @@ class KpopAnalysisAgent:
         risk = _sentiment_risk(negative)
         summary = LOCAL_SUMMARIES.get(intent.artist, f"{intent.artist} 目前資料量有限，建議持續觀察榜單與粉絲反應。")
         news_titles = _format_news_titles(news or [])
+        chart_performance = _format_chart_performance_lines(
+            chart=chart,
+            weeks=intent.period_months * 4,
+        )
 
         return f"""# {intent.artist} 近期市場與輿論分析
 
 ## 1. 榜單表現
-- 最近 {intent.period_months * 4} 週最高排名：{best_rank}
-- 平均排名：{chart.get("avg_rank", "N/A")}
-- 上榜週數：{chart.get("weeks_on_chart", "N/A")}
-- 排名趨勢：{chart.get("trend", "資料不足")}
+{chart_performance}
 
 ## 2. 新聞事件脈絡
 - 近期主要事件：{news_titles}
@@ -570,6 +572,25 @@ def _sentiment_risk(negative_ratio: Any) -> str:
     if negative >= 0.25:
         return "中"
     return "低"
+
+
+def _format_chart_performance_lines(chart: dict[str, Any], weeks: int) -> str:
+    if chart.get("trend") == "資料不足":
+        return "\n".join(
+            [
+                f"- 本週最高排名：{chart.get('best_rank', 'N/A')}",
+                f"- 本週上榜歌曲數：{chart.get('weeks_on_chart', 'N/A')}",
+                f"- 平均排名：{chart.get('avg_rank', 'N/A')}",
+            ]
+        )
+    return "\n".join(
+        [
+            f"- 最近 {weeks} 週最高排名：{chart.get('best_rank', 'N/A')}",
+            f"- 平均排名：{chart.get('avg_rank', 'N/A')}",
+            f"- 上榜週數：{chart.get('weeks_on_chart', 'N/A')}",
+            f"- 排名趨勢：{chart.get('trend', '資料不足')}",
+        ]
+    )
 
 
 def _local_trend_sentence(artist: str, chart: dict[str, Any]) -> str:
