@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import html
 import os
 import re
 import sys
@@ -31,6 +32,8 @@ ARTISTS = (
 YOUTUBE_SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
 YOUTUBE_COMMENTS_URL = "https://www.googleapis.com/youtube/v3/commentThreads"
 HANGUL_RE = re.compile(r"[가-힣]")
+SEARCH_RESULTS_PER_ARTIST = 5
+COMMENTS_PER_ARTIST = 20
 
 
 def main() -> None:
@@ -44,10 +47,14 @@ def main() -> None:
 
     for index, artist in enumerate(ARTISTS):
         try:
-            rows = fetch_artist_comments(artist=artist, api_key=api_key, target_count=20)
+            rows = fetch_artist_comments(
+                artist=artist,
+                api_key=api_key,
+                target_count=COMMENTS_PER_ARTIST,
+            )
             counts[artist] = len(rows)
             all_rows.extend(rows)
-            if len(rows) < 20:
+            if len(rows) < COMMENTS_PER_ARTIST:
                 print(f"WARNING {artist}: only fetched {len(rows)} Korean comments.")
             else:
                 print(f"OK {artist}: fetched {len(rows)} Korean comments.")
@@ -65,45 +72,58 @@ def main() -> None:
 
 
 def fetch_artist_comments(artist: str, api_key: str, target_count: int) -> list[dict[str, str]]:
-    video = search_first_video(artist=artist, api_key=api_key)
-    if not video:
-        return []
-    comments = fetch_korean_comments(
-        video_id=video["video_id"],
-        api_key=api_key,
-        target_count=target_count,
-    )
-    return [
-        {
-            "artist": artist,
-            "song": video["title"],
-            "comment": comment,
-        }
-        for comment in comments[:target_count]
-    ]
+    rows: list[dict[str, str]] = []
+    seen_comments: set[str] = set()
+
+    for video in search_videos(artist=artist, api_key=api_key):
+        comments = fetch_korean_comments(
+            video_id=video["video_id"],
+            api_key=api_key,
+            target_count=target_count - len(rows),
+        )
+        for comment in comments:
+            if comment in seen_comments:
+                continue
+            seen_comments.add(comment)
+            rows.append(
+                {
+                    "artist": artist,
+                    "song": video["title"],
+                    "comment": comment,
+                }
+            )
+            if len(rows) >= target_count:
+                return rows
+        time.sleep(0.2)
+
+    return rows
 
 
-def search_first_video(artist: str, api_key: str) -> dict[str, str] | None:
+def search_videos(artist: str, api_key: str) -> list[dict[str, str]]:
     params = {
         "part": "snippet",
-        "q": f"{artist} 뮤직비디오 OR MV OR 신곡",
+        "q": f"{artist} official MV OR stage OR comeback",
         "type": "video",
-        "maxResults": 1,
+        "maxResults": SEARCH_RESULTS_PER_ARTIST,
         "order": "relevance",
+        "relevanceLanguage": "ko",
         "key": api_key,
     }
     payload = _youtube_get(YOUTUBE_SEARCH_URL, params=params)
-    items = payload.get("items", [])
-    if not items:
-        return None
-    item = items[0]
-    video_id = item.get("id", {}).get("videoId")
-    if not video_id:
-        return None
-    return {
-        "video_id": video_id,
-        "title": _clean_text(item.get("snippet", {}).get("title", "")),
-    }
+    videos: list[dict[str, str]] = []
+    seen_video_ids: set[str] = set()
+    for item in payload.get("items", []):
+        video_id = item.get("id", {}).get("videoId")
+        if not video_id or video_id in seen_video_ids:
+            continue
+        seen_video_ids.add(video_id)
+        videos.append(
+            {
+                "video_id": video_id,
+                "title": _clean_text(item.get("snippet", {}).get("title", "")),
+            }
+        )
+    return videos
 
 
 def fetch_korean_comments(video_id: str, api_key: str, target_count: int) -> list[str]:
@@ -153,7 +173,7 @@ def _youtube_get(url: str, params: dict[str, Any]) -> dict[str, Any]:
 
 
 def _clean_text(value: str) -> str:
-    return re.sub(r"\s+", " ", value).strip()
+    return re.sub(r"\s+", " ", html.unescape(value)).strip()
 
 
 if __name__ == "__main__":
