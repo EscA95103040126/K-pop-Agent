@@ -7,3 +7,5 @@ __pycache__/
 .coverage
 instance/
 *.pyc
+data/cache/
+data/chart_history.db
