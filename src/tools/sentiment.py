@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import csv
+import time
 from pathlib import Path
+
+import requests
 
 from src.config import settings
 
@@ -12,16 +15,13 @@ ARTIST_ALIASES = {
     "new jeans": "newjeans",
 }
 
-POSITIVE_KEYWORDS = [
-    "중독성", "대박", "완벽", "멋있", "최고", "좋아", "예쁘", "사랑스럽",
-    "흥미", "화려", "깔끔", "당당", "편안", "자연스럽", "강렬", "중독",
-    "좋다", "잘했어", "사랑", "좋고",
-]
-
-NEGATIVE_KEYWORDS = [
-    "아쉬워", "아쉽게", "아쉽긴", "실망", "낯설", "이상하고", "짧아요",
-    "약하다", "약해요", "부족", "별로", "지루", "어색", "평범", "논란",
-]
+VALID_SENTIMENT_LABELS = {"positive", "neutral", "negative"}
+GEMINI_REQUEST_TIMEOUT_SECONDS = 10
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+GEMINI_SENTIMENT_PROMPT = """你是一個韓文情感分析專家。
+請判斷以下韓文評論的情感傾向，只能回答其中一個：positive / neutral / negative
+評論：{comment}
+只回答一個英文單字，不要有其他內容。"""
 
 
 def load_comments(csv_path: str | None = None) -> list[dict]:
@@ -46,20 +46,49 @@ def get_comments_by_artist(artist_name: str, csv_path: str | None = None) -> lis
 
 
 def classify_comment(comment: str | None) -> str:
-    """Rule-based Korean comment sentiment classifier.
+    """Zero-shot Korean comment sentiment classifier powered by Gemini.
 
     Returns 'positive', 'negative', or 'neutral'.
     """
     if not comment:
         return "neutral"
-    pos = sum(1 for kw in POSITIVE_KEYWORDS if kw in comment)
-    neg = sum(1 for kw in NEGATIVE_KEYWORDS if kw in comment)
-    if pos > neg:
-        return "positive"
-    elif neg > pos:
-        return "negative"
-    else:
+
+    if not settings.gemini_api_key:
         return "neutral"
+
+    try:
+        response = requests.post(
+            GEMINI_API_URL.format(model=settings.gemini_model),
+            params={"key": settings.gemini_api_key},
+            json={
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [
+                            {
+                                "text": GEMINI_SENTIMENT_PROMPT.format(
+                                    comment=comment.strip()
+                                )
+                            }
+                        ],
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": 0,
+                    "maxOutputTokens": 5,
+                },
+            },
+            timeout=GEMINI_REQUEST_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        data = response.json()
+        label = (
+            data["candidates"][0]["content"]["parts"][0].get("text", "")
+        ).strip().casefold()
+    except Exception:
+        return "neutral"
+
+    return label if label in VALID_SENTIMENT_LABELS else "neutral"
 
 
 def analyze_sentiment_from_csv(artist_name: str, song: str | None = None) -> dict:
@@ -83,19 +112,19 @@ def analyze_sentiment_from_csv(artist_name: str, song: str | None = None) -> dic
         }
 
     counts: dict[str, int] = {"positive": 0, "neutral": 0, "negative": 0}
-    keyword_freq: dict[str, int] = {}
-    all_keywords = POSITIVE_KEYWORDS + NEGATIVE_KEYWORDS
 
     for row in comments:
         text = row["comment"]
-        label = classify_comment(text)
+        try:
+            label = classify_comment(text)
+        except Exception:
+            label = "neutral"
+        if label not in counts:
+            label = "neutral"
         counts[label] += 1
-        for kw in all_keywords:
-            if kw in text:
-                keyword_freq[kw] = keyword_freq.get(kw, 0) + 1
+        time.sleep(0.5)
 
     sentiment = {k: round(v / total, 4) for k, v in counts.items()}
-    top_keywords = sorted(keyword_freq, key=lambda k: keyword_freq[k], reverse=True)[:5]
 
     pos = sentiment["positive"]
     neg = sentiment["negative"]
@@ -115,7 +144,7 @@ def analyze_sentiment_from_csv(artist_name: str, song: str | None = None) -> dic
         "song": song,
         "total_comments": total,
         "sentiment": sentiment,
-        "top_keywords": top_keywords,
+        "top_keywords": [],
         "summary": summary,
     }
 
