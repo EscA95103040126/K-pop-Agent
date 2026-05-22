@@ -1,3 +1,6 @@
+from pathlib import Path
+from types import SimpleNamespace
+
 import app as app_module
 from app import app
 
@@ -52,3 +55,118 @@ def test_play_zone_describes_three_fan_attribute_types() -> None:
 
     assert fan_quiz_item["contents"][1]["contents"][0]["text"] == "粉絲屬性測驗"
     assert "團飯、唯飯還是跟風粉" in fan_quiz_item["contents"][1]["contents"][1]["text"]
+
+
+def _use_photo_card_csv(monkeypatch, tmp_path: Path, csv_text: str) -> Path:
+    play_zone_dir = tmp_path / "data" / "play_zone"
+    play_zone_dir.mkdir(parents=True)
+    csv_path = play_zone_dir / "photo_cards.csv"
+    csv_path.write_text(csv_text, encoding="utf-8")
+    monkeypatch.setattr(app_module, "settings", SimpleNamespace(base_dir=tmp_path))
+    app_module.photo_card_queue = []
+    app_module.photo_card_source_key = ()
+    return csv_path
+
+
+def test_photo_cards_csv_template_is_readable() -> None:
+    csv_path = Path(app_module.__file__).resolve().parent / "data" / "play_zone" / "photo_cards.csv"
+
+    assert csv_path.read_text(encoding="utf-8") == "artist,type,url\n"
+
+
+def test_photo_cards_csv_loads_valid_rows(monkeypatch, tmp_path: Path) -> None:
+    _use_photo_card_csv(
+        monkeypatch,
+        tmp_path,
+        "artist,type,url\nKarina,直拍,https://example.com/karina\n,,\n",
+    )
+
+    rows = app_module._load_photo_card_rows()
+
+    assert rows == [
+        {
+            "artist": "Karina",
+            "type": "直拍",
+            "url": "https://example.com/karina",
+        }
+    ]
+
+
+def test_photo_card_empty_csv_uses_fallback_text(monkeypatch, tmp_path: Path) -> None:
+    _use_photo_card_csv(monkeypatch, tmp_path, "artist,type,url\n")
+    client = app.test_client()
+
+    response = client.post("/analyze", json={"message": "神圖抽卡"})
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["report"] == "目前還沒有神圖資料，請先補 data/play_zone/photo_cards.csv"
+    assert payload["flex"] is None
+
+
+def test_photo_card_with_data_returns_plain_text_recommendation(monkeypatch, tmp_path: Path) -> None:
+    _use_photo_card_csv(
+        monkeypatch,
+        tmp_path,
+        "artist,type,url\nKarina,直拍,https://example.com/karina\n",
+    )
+    client = app.test_client()
+
+    response = client.post("/analyze", json={"message": "抽卡"})
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["report"] == "恭喜你今天抽到的是 Karina 的 直拍\nhttps://example.com/karina"
+
+
+def test_photo_card_draw_returns_redraw_flex(monkeypatch, tmp_path: Path) -> None:
+    _use_photo_card_csv(
+        monkeypatch,
+        tmp_path,
+        "artist,type,url\nIVE,活動,https://example.com/ive\n",
+    )
+    client = app.test_client()
+
+    response = client.post("/analyze", json={"message": "再抽一次神圖"})
+    payload = response.get_json()
+    flex = payload["flex"]
+
+    assert flex["header"]["contents"][0]["text"] == "再抽一次"
+    assert flex["body"]["contents"][0]["text"] == "想再抽一張神圖嗎？"
+    assert flex["body"]["contents"][1]["action"]["text"] == "神圖抽卡"
+    assert flex["body"]["contents"][2]["action"]["text"] == "互動專區"
+
+
+def test_photo_card_queue_avoids_short_term_repeats(monkeypatch, tmp_path: Path) -> None:
+    _use_photo_card_csv(
+        monkeypatch,
+        tmp_path,
+        "\n".join(
+            [
+                "artist,type,url",
+                "Karina,直拍,https://example.com/karina",
+                "IVE,活動,https://example.com/ive",
+                "Taeyeon,簽售,https://example.com/taeyeon",
+            ]
+        )
+        + "\n",
+    )
+
+    draws = [app_module._load_photo_card_recommendation() for _ in range(3)]
+    draw_keys = {
+        (draw["artist"], draw["type"], draw["url"])
+        for draw in draws
+        if draw is not None
+    }
+
+    assert len(draw_keys) == 3
+
+
+def test_unknown_input_does_not_crash() -> None:
+    client = app.test_client()
+
+    response = client.post("/analyze", json={"message": "這是一個未知指令"})
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert "目前支援固定指令" in payload["report"]

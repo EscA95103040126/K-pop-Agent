@@ -62,6 +62,9 @@ agent = KpopAnalysisAgent()
 logger = logging.getLogger(__name__)
 daily_kpop_queues: dict[str, list[dict[str, str]]] = {}
 daily_kpop_source_keys: dict[str, tuple[tuple[str, str, str, str], ...]] = {}
+photo_card_queue: list[dict[str, str]] = []
+photo_card_source_key: tuple[tuple[str, str, str], ...] = ()
+PHOTO_CARD_EMPTY_TEXT = "目前還沒有神圖資料，請先補 data/play_zone/photo_cards.csv"
 FAN_ATTRIBUTE_TYPES = {
     "group": {
         "name": "團飯",
@@ -266,6 +269,16 @@ def analyze() -> tuple[dict, int]:
         response = {
             "report": report,
             "flex": _build_daily_kpop_redraw_flex_contents(),
+        }
+    elif _is_photo_card_request(message):
+        report = _photo_card_placeholder_text()
+        response = {
+            "report": report,
+            "flex": (
+                None
+                if report == PHOTO_CARD_EMPTY_TEXT
+                else _build_photo_card_redraw_flex_contents()
+            ),
         }
     elif intent.name == "weekly_chart":
         chart_cache = agent.get_weekly_chart_cache()
@@ -741,6 +754,65 @@ def _build_daily_kpop_redraw_flex_contents() -> dict:
     }
 
 
+def _build_photo_card_redraw_flex_contents() -> dict:
+    return {
+        "type": "bubble",
+        "size": "kilo",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#8B5E52",
+            "paddingAll": "14px",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "再抽一次",
+                    "size": "md",
+                    "weight": "bold",
+                    "color": "#FFFFFF",
+                },
+            ],
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#FAF7F4",
+            "paddingAll": "14px",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "想再抽一張神圖嗎？",
+                    "size": "xs",
+                    "color": "#5C4033",
+                    "wrap": True,
+                },
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "height": "sm",
+                    "color": "#8B5E52",
+                    "action": {
+                        "type": "message",
+                        "label": "再抽一次",
+                        "text": "神圖抽卡",
+                    },
+                },
+                {
+                    "type": "button",
+                    "style": "secondary",
+                    "height": "sm",
+                    "action": {
+                        "type": "message",
+                        "label": "回 Play Zone",
+                        "text": "互動專區",
+                    },
+                },
+            ],
+        },
+    }
+
+
 def _daily_redraw_button(label: str, text: str) -> dict:
     return {
         "type": "button",
@@ -920,6 +992,11 @@ def _is_daily_kpop_category_request(message: str) -> bool:
     return normalized in {"每日 MV", "每日MV", "每日直拍", "每日 經典舞台", "每日經典舞台"}
 
 
+def _is_photo_card_request(message: str) -> bool:
+    normalized = message.strip()
+    return normalized in {"神圖抽卡", "再抽一次神圖", "再抽一張", "抽卡"}
+
+
 def _is_supported_artist_analysis(message: str) -> bool:
     intent = route_message(message)
     return intent.name != "weekly_chart" and intent.artist in SUPPORTED_ARTISTS
@@ -975,6 +1052,8 @@ def _reply_text_for_message(message: str) -> str:
         return _fan_attribute_quiz_text(message)
     if _is_daily_kpop_request(message):
         return "請在 LINE 中點選每日一首 K-pop 卡片選擇 MV、直拍或經典舞台。"
+    if _is_photo_card_request(message):
+        return _photo_card_placeholder_text()
     if _is_play_zone_placeholder_request(message):
         return _play_zone_placeholder_text(message)
     if _is_daily_kpop_category_request(message):
@@ -1006,6 +1085,13 @@ def _play_zone_placeholder_text(message: str) -> str:
         f"{feature}入口已建立。\n"
         "下一步會接題庫與本地 JSON 結果表，讓它變成真正可玩的互動流程。"
     )
+
+
+def _photo_card_placeholder_text() -> str:
+    card = _load_photo_card_recommendation()
+    if card:
+        return _format_photo_card_recommendation(card)
+    return PHOTO_CARD_EMPTY_TEXT
 
 
 def _parse_fan_attribute_quiz_state(message: str) -> dict:
@@ -1157,6 +1243,55 @@ def _load_daily_kpop_rows(category: str) -> list[dict[str, str]]:
             if row.get("title", "").strip()
             and row.get("url", "").strip()
         ]
+
+
+def _load_photo_card_recommendation() -> dict[str, str] | None:
+    global photo_card_queue, photo_card_source_key
+
+    rows = _load_photo_card_rows()
+    if not rows:
+        photo_card_queue = []
+        photo_card_source_key = ()
+        return None
+
+    source_key = _photo_card_source_key(rows)
+    if not photo_card_queue or photo_card_source_key != source_key:
+        photo_card_queue = rows[:]
+        random.shuffle(photo_card_queue)
+        photo_card_source_key = source_key
+    return photo_card_queue.pop()
+
+
+def _load_photo_card_rows() -> list[dict[str, str]]:
+    csv_path = settings.base_dir / "data" / "play_zone" / "photo_cards.csv"
+    if not csv_path.exists():
+        return []
+    with csv_path.open(newline="", encoding="utf-8") as file:
+        return [
+            row
+            for row in csv.DictReader(file)
+            if row.get("artist", "").strip()
+            and row.get("type", "").strip()
+            and row.get("url", "").strip()
+        ]
+
+
+def _photo_card_source_key(rows: list[dict[str, str]]) -> tuple[tuple[str, str, str], ...]:
+    return tuple(
+        (
+            row.get("artist", "").strip(),
+            row.get("type", "").strip(),
+            row.get("url", "").strip(),
+        )
+        for row in rows
+    )
+
+
+def _format_photo_card_recommendation(card: dict[str, str]) -> str:
+    artist = card.get("artist", "").strip()
+    card_type = card.get("type", "").strip()
+    url = card.get("url", "").strip()
+    return f"恭喜你今天抽到的是 {artist} 的 {card_type}\n{url}"
 
 
 def _daily_kpop_source_key(rows: list[dict[str, str]]) -> tuple[tuple[str, str, str, str], ...]:
@@ -1452,6 +1587,18 @@ if line_handler is not None and MessageEvent is not None and TextMessageContent 
                         alt_text="再抽一首 K-pop",
                     ),
                 ]
+            elif _is_photo_card_request(user_text):
+                report_text = _photo_card_placeholder_text()
+                fallback_text = fit_line_text(report_text)
+                reply_message = TextMessage(text=fallback_text)
+                if report_text != PHOTO_CARD_EMPTY_TEXT:
+                    reply_messages = [
+                        reply_message,
+                        _build_line_flex_message(
+                            _build_photo_card_redraw_flex_contents(),
+                            alt_text="再抽一次",
+                        ),
+                    ]
             else:
                 if route_message(user_text).name == "weekly_chart":
                     chart_cache = agent.get_weekly_chart_cache()
