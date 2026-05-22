@@ -36,7 +36,7 @@ try:
         TemplateMessage,
         TextMessage,
     )
-    from linebot.v3.webhooks import MessageEvent, TextMessageContent
+    from linebot.v3.webhooks import MessageEvent, PostbackEvent, TextMessageContent
 except ImportError:  # pragma: no cover - lets local mock mode run without LINE SDK.
     WebhookHandler = None
     InvalidSignatureError = Exception
@@ -53,6 +53,7 @@ except ImportError:  # pragma: no cover - lets local mock mode run without LINE 
     TemplateMessage = None
     TextMessage = None
     MessageEvent = None
+    PostbackEvent = None
     TextMessageContent = None
 
 
@@ -558,7 +559,7 @@ def _fan_attribute_option_button(
         "paddingAll": "12px",
         "backgroundColor": "#FFFFFF",
         "cornerRadius": "8px",
-        "action": {"type": "message", "text": action_text},
+        "action": {"type": "postback", "data": action_text},
         "contents": [
             {
                 "type": "text",
@@ -1408,9 +1409,7 @@ def _sqlite_status() -> dict:
 
 if line_handler is not None and MessageEvent is not None and TextMessageContent is not None:
 
-    @line_handler.add(MessageEvent, message=TextMessageContent)
-    def handle_text_message(event: MessageEvent) -> None:
-        user_text = event.message.text
+    def _reply_line_event(event: MessageEvent | PostbackEvent, user_text: str) -> None:
         if _should_skip_line_event(event, user_text):
             return
         if not line_configuration:
@@ -1501,6 +1500,17 @@ if line_handler is not None and MessageEvent is not None and TextMessageContent 
                 except Exception as fallback_exc:
                     _clear_line_event_processing(event)
                     logger.exception("LINE reply failed: %s", fallback_exc)
+
+    @line_handler.add(MessageEvent, message=TextMessageContent)
+    def handle_text_message(event: MessageEvent) -> None:
+        _reply_line_event(event, event.message.text)
+
+    if PostbackEvent is not None:
+
+        @line_handler.add(PostbackEvent)
+        def handle_postback(event: PostbackEvent) -> None:
+            postback_data = getattr(event.postback, "data", "")
+            _reply_line_event(event, str(postback_data))
 
 
 if __name__ == "__main__":

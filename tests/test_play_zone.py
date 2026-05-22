@@ -13,6 +13,16 @@ def test_fan_attribute_quiz_starts_with_first_question() -> None:
     assert payload["flex"]["header"]["contents"][1]["text"] == "Q1/5"
 
 
+def test_fan_attribute_quiz_options_use_hidden_postback_state() -> None:
+    flex = app_module._build_fan_attribute_quiz_flex_contents("粉絲屬性測驗")
+    first_option_action = flex["body"]["contents"][1]["action"]
+
+    assert first_option_action["type"] == "postback"
+    assert first_option_action["data"] == "粉絲屬性測驗:1:3,1,0"
+    assert "text" not in first_option_action
+    assert "displayText" not in first_option_action
+
+
 def test_fan_attribute_quiz_scores_group_fan_result() -> None:
     scores = {key: 0 for key in app_module.FAN_ATTRIBUTE_ORDER}
     for question in app_module.FAN_ATTRIBUTE_QUIZ:
