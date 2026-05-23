@@ -8,6 +8,7 @@ import re
 import sqlite3
 import unicodedata
 from collections import OrderedDict
+from math import gcd
 from pathlib import Path
 from time import monotonic, time
 from urllib.parse import quote
@@ -1005,9 +1006,8 @@ def _build_member_quiz_question_flex_contents(quiz: dict[str, str]) -> dict:
             "type": "image",
             "url": _member_quiz_image_url(quiz),
             "size": "full",
-            "aspectRatio": "1:1",
-            "aspectMode": "fit",
-            "backgroundColor": "#F7FAF8",
+            "aspectRatio": _member_quiz_image_aspect_ratio(quiz),
+            "aspectMode": "cover",
         },
         "header": {
             "type": "box",
@@ -1866,6 +1866,25 @@ def _member_quiz_image_url(quiz: dict[str, str]) -> str:
     host = forwarded_host or request.host
     scheme = forwarded_proto or request.scheme
     return f"{scheme}://{host}/play-zone/images/{quote(filename)}"
+
+
+def _member_quiz_image_aspect_ratio(quiz: dict[str, str]) -> str:
+    filename = _member_quiz_filename_from_image_path(quiz.get("image_path", ""))
+    if filename is None:
+        return "1:1"
+
+    try:
+        from PIL import Image, ImageOps
+
+        with Image.open(_member_quiz_image_dir() / filename) as image:
+            width, height = ImageOps.exif_transpose(image).size
+    except Exception:
+        return "1:1"
+
+    if width <= 0 or height <= 0:
+        return "1:1"
+    divisor = gcd(width, height)
+    return f"{width // divisor}:{height // divisor}"
 
 
 def _member_quiz_filename_from_image_path(image_path: str) -> str | None:

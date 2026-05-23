@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import app as app_module
 from app import app
+from PIL import Image
 
 
 def test_fan_attribute_quiz_starts_with_first_question() -> None:
@@ -168,8 +169,8 @@ def _use_member_quiz_csv(monkeypatch, tmp_path: Path, csv_text: str) -> Path:
     play_zone_dir = tmp_path / "data" / "play_zone"
     image_dir = play_zone_dir / "member_quiz_images"
     image_dir.mkdir(parents=True)
-    (image_dir / "q001.jpg").write_bytes(b"fake image")
-    (image_dir / "q002.png").write_bytes(b"fake image")
+    Image.new("RGB", (2, 3), color="white").save(image_dir / "q001.jpg")
+    Image.new("RGB", (4, 5), color="white").save(image_dir / "q002.png")
     csv_path = play_zone_dir / "member_quiz.csv"
     csv_path.write_text(csv_text, encoding="utf-8")
     monkeypatch.setattr(app_module, "settings", SimpleNamespace(base_dir=tmp_path))
@@ -325,8 +326,8 @@ def test_member_quiz_with_data_returns_question_flex(monkeypatch, tmp_path: Path
     assert response.status_code == 200
     assert payload["report"] == "認人測驗：左邊是誰？"
     assert flex["hero"]["type"] == "image"
-    assert flex["hero"]["aspectMode"] == "fit"
-    assert flex["hero"]["aspectRatio"] == "1:1"
+    assert flex["hero"]["aspectMode"] == "cover"
+    assert flex["hero"]["aspectRatio"] == "2:3"
     assert flex["hero"]["url"] == "http://localhost/play-zone/images/q001.jpg"
     first_action = flex["body"]["contents"][0]["action"]
     second_action = flex["body"]["contents"][1]["action"]
