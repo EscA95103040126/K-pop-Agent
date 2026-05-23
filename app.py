@@ -269,6 +269,18 @@ def play_zone_member_quiz_flex_image(filename: str):
     return _send_member_quiz_flex_image(safe_filename)
 
 
+@app.get("/play-zone/images/line/<path:filename>")
+def play_zone_member_quiz_line_image(filename: str):
+    safe_filename = _safe_member_quiz_line_image_filename(filename)
+    if safe_filename is None:
+        abort(404)
+    return send_from_directory(
+        _member_quiz_line_image_dir(),
+        safe_filename,
+        max_age=60 * 60 * 24,
+    )
+
+
 @app.post("/analyze")
 def analyze() -> tuple[dict, int]:
     payload = request.get_json(silent=True) or {}
@@ -1873,15 +1885,20 @@ def _member_quiz_image_dir() -> Path:
     return settings.base_dir / "data" / "play_zone" / "member_quiz_images"
 
 
+def _member_quiz_line_image_dir() -> Path:
+    return settings.base_dir / "data" / "play_zone" / "member_quiz_line_images"
+
+
 def _member_quiz_image_url(quiz: dict[str, str]) -> str:
     filename = _member_quiz_filename_from_image_path(quiz.get("image_path", ""))
     if filename is None:
         filename = ""
+    line_filename = f"{Path(filename).stem}.jpg" if filename else ""
     forwarded_host = request.headers.get("X-Forwarded-Host", "").split(",", 1)[0].strip()
     forwarded_proto = request.headers.get("X-Forwarded-Proto", "").split(",", 1)[0].strip()
     host = forwarded_host or request.host
     scheme = forwarded_proto or request.scheme
-    return f"{scheme}://{host}/play-zone/images/{quote(filename)}"
+    return f"{scheme}://{host}/play-zone/images/line/{quote(line_filename)}"
 
 
 def _send_member_quiz_flex_image(filename: str):
@@ -1921,6 +1938,16 @@ def _safe_member_quiz_image_filename(filename: str) -> str | None:
     if not normalized or "/" in normalized or path.name != normalized:
         return None
     if path.suffix.casefold() not in MEMBER_QUIZ_IMAGE_EXTENSIONS:
+        return None
+    return normalized
+
+
+def _safe_member_quiz_line_image_filename(filename: str) -> str | None:
+    normalized = filename.strip().replace("\\", "/")
+    path = Path(normalized)
+    if not normalized or "/" in normalized or path.name != normalized:
+        return None
+    if path.suffix.casefold() != ".jpg":
         return None
     return normalized
 

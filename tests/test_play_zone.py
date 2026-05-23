@@ -169,9 +169,13 @@ def _use_photo_card_csv(monkeypatch, tmp_path: Path, csv_text: str) -> Path:
 def _use_member_quiz_csv(monkeypatch, tmp_path: Path, csv_text: str) -> Path:
     play_zone_dir = tmp_path / "data" / "play_zone"
     image_dir = play_zone_dir / "member_quiz_images"
+    line_image_dir = play_zone_dir / "member_quiz_line_images"
     image_dir.mkdir(parents=True)
+    line_image_dir.mkdir(parents=True)
     Image.new("RGB", (2, 3), color="white").save(image_dir / "q001.jpg")
     Image.new("RGB", (4, 5), color="white").save(image_dir / "q002.png")
+    Image.new("RGB", (2, 3), color="white").save(line_image_dir / "q001.jpg")
+    Image.new("RGB", (4, 5), color="white").save(line_image_dir / "q002.jpg")
     csv_path = play_zone_dir / "member_quiz.csv"
     csv_path.write_text(csv_text, encoding="utf-8")
     monkeypatch.setattr(app_module, "settings", SimpleNamespace(base_dir=tmp_path))
@@ -326,7 +330,7 @@ def test_member_quiz_with_data_returns_question_flex(monkeypatch, tmp_path: Path
 
     assert response.status_code == 200
     assert payload["report"] == "認人測驗：左邊是誰？"
-    assert payload["image_url"] == "http://localhost/play-zone/images/q001.jpg"
+    assert payload["image_url"] == "http://localhost/play-zone/images/line/q001.jpg"
     assert "hero" not in flex
     first_action = flex["body"]["contents"][0]["action"]
     second_action = flex["body"]["contents"][1]["action"]
@@ -431,6 +435,25 @@ def test_member_quiz_flex_image_route_returns_square_jpeg(monkeypatch, tmp_path:
     assert response.content_type == "image/jpeg"
     with Image.open(BytesIO(response.data)) as image:
         assert image.size == (3, 3)
+
+
+def test_member_quiz_line_image_route_returns_normalized_jpeg(monkeypatch, tmp_path: Path) -> None:
+    _use_member_quiz_csv(
+        monkeypatch,
+        tmp_path,
+        "id,question,image_path,option_a,option_b,answer\n",
+    )
+    client = app.test_client()
+
+    response = client.get("/play-zone/images/line/q001.jpg")
+    traversal_response = client.get("/play-zone/images/line/%2E%2E/q001.jpg")
+    unsupported_response = client.get("/play-zone/images/line/q001.png")
+
+    assert response.status_code == 200
+    assert response.content_type == "image/jpeg"
+    assert response.headers["Cache-Control"] == "public, max-age=86400"
+    assert traversal_response.status_code == 404
+    assert unsupported_response.status_code == 404
 
 
 def test_unknown_input_does_not_crash() -> None:
