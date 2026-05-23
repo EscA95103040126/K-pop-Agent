@@ -30,6 +30,7 @@ try:
         Configuration,
         FlexContainer,
         FlexMessage,
+        ImageMessage,
         MessageAction,
         MessagingApi,
         QuickReply,
@@ -47,6 +48,7 @@ except ImportError:  # pragma: no cover - lets local mock mode run without LINE 
     Configuration = None
     FlexContainer = None
     FlexMessage = None
+    ImageMessage = None
     MessageAction = None
     MessagingApi = None
     QuickReply = None
@@ -403,6 +405,12 @@ def _build_line_flex_message(flex_contents: dict, alt_text: str = "K-pop 분석 
     except Exception:
         logger.exception("Cached Flex build failed; falling back to text.")
         return TextMessage(text=alt_text)
+
+
+def _build_line_image_message(image_url: str, alt_text: str = "認人測驗圖片"):
+    if ImageMessage is None:
+        return TextMessage(text=alt_text)
+    return ImageMessage(originalContentUrl=image_url, previewImageUrl=image_url)
 
 
 def _build_artist_picker_message():
@@ -1010,13 +1018,6 @@ def _build_member_quiz_question_flex_contents(quiz: dict[str, str]) -> dict:
     return {
         "type": "bubble",
         "size": "mega",
-        "hero": {
-            "type": "image",
-            "url": _member_quiz_image_url(quiz),
-            "size": "full",
-            "aspectRatio": "1:1",
-            "aspectMode": "cover",
-        },
         "header": {
             "type": "box",
             "layout": "vertical",
@@ -1759,6 +1760,7 @@ def _member_quiz_question_response() -> dict:
     return {
         "report": f"認人測驗：{quiz['question']}",
         "flex": _build_member_quiz_question_flex_contents(quiz),
+        "image_url": _member_quiz_image_url(quiz),
     }
 
 
@@ -2342,6 +2344,13 @@ if line_handler is not None and MessageEvent is not None and TextMessageContent 
                         response["flex"],
                         alt_text="認人測驗",
                     )
+                    reply_messages = [
+                        _build_line_image_message(
+                            response["image_url"],
+                            alt_text="認人測驗圖片",
+                        ),
+                        reply_message,
+                    ]
             elif _is_daily_kpop_request(user_text):
                 reply_message = _build_line_flex_message(
                     _build_daily_kpop_flex_contents(),

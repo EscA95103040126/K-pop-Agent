@@ -326,10 +326,8 @@ def test_member_quiz_with_data_returns_question_flex(monkeypatch, tmp_path: Path
 
     assert response.status_code == 200
     assert payload["report"] == "認人測驗：左邊是誰？"
-    assert flex["hero"]["type"] == "image"
-    assert flex["hero"]["aspectMode"] == "cover"
-    assert flex["hero"]["aspectRatio"] == "1:1"
-    assert flex["hero"]["url"] == "http://localhost/play-zone/images/flex/q001.jpg"
+    assert payload["image_url"] == "http://localhost/play-zone/images/flex/q001.jpg"
+    assert "hero" not in flex
     first_action = flex["body"]["contents"][0]["action"]
     second_action = flex["body"]["contents"][1]["action"]
     assert first_action["type"] == "postback"
