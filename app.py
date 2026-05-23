@@ -1005,8 +1005,9 @@ def _build_member_quiz_question_flex_contents(quiz: dict[str, str]) -> dict:
             "type": "image",
             "url": _member_quiz_image_url(quiz),
             "size": "full",
-            "aspectRatio": "20:13",
-            "aspectMode": "cover",
+            "aspectRatio": "1:1",
+            "aspectMode": "fit",
+            "backgroundColor": "#F7FAF8",
         },
         "header": {
             "type": "box",
