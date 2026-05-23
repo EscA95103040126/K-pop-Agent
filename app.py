@@ -1881,7 +1881,7 @@ def _member_quiz_image_url(quiz: dict[str, str]) -> str:
     forwarded_proto = request.headers.get("X-Forwarded-Proto", "").split(",", 1)[0].strip()
     host = forwarded_host or request.host
     scheme = forwarded_proto or request.scheme
-    return f"{scheme}://{host}/play-zone/images/flex/{quote(filename)}"
+    return f"{scheme}://{host}/play-zone/images/{quote(filename)}"
 
 
 def _send_member_quiz_flex_image(filename: str):
