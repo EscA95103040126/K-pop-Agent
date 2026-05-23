@@ -1,0 +1,27 @@
+[
+  {
+    "key": "gender",
+    "question": "想看：",
+    "options": ["男團", "女團", "都可以"]
+  },
+  {
+    "key": "appearance",
+    "question": "外貌偏好：",
+    "options": ["貓咪", "狗狗", "小兔", "狐狸", "小鹿"]
+  },
+  {
+    "key": "position",
+    "question": "喜歡定位：",
+    "options": ["Vocal", "Dance", "Rap", "Visual", "All-rounder"]
+  },
+  {
+    "key": "vibe",
+    "question": "喜歡氣質：",
+    "options": ["冷感", "甜系", "霸氣", "反差", "清冷"]
+  },
+  {
+    "key": "relationship",
+    "question": "本命關係感：",
+    "options": ["戀愛感", "神性", "朋友感", "初戀感", "舞台支配感"]
+  }
+]

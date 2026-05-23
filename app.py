@@ -64,6 +64,8 @@ daily_kpop_queues: dict[str, list[dict[str, str]]] = {}
 daily_kpop_source_keys: dict[str, tuple[tuple[str, str, str, str], ...]] = {}
 photo_card_queue: list[dict[str, str]] = []
 photo_card_source_key: tuple[tuple[str, str, str], ...] = ()
+BIAS_RADAR_TRIGGERS = {"本命雷達測驗", "本命雷達", "測本命"}
+bias_radar_sessions: dict[str, dict[str, object]] = {}
 PHOTO_CARD_EMPTY_TEXT = "目前還沒有神圖資料，請先補 data/play_zone/photo_cards.csv"
 FAN_ATTRIBUTE_TYPES = {
     "group": {
@@ -244,6 +246,7 @@ def analyze() -> tuple[dict, int]:
     payload = request.get_json(silent=True) or {}
     message = payload.get("message", "")
     artist = payload.get("artist", "")
+    user_id = str(payload.get("user_id") or "analyze-user")
     if not message and artist:
         message = f"分析 {artist}"
     if not message:
@@ -254,6 +257,8 @@ def analyze() -> tuple[dict, int]:
             "report": "K-pop Play Zone",
             "flex": _build_play_zone_flex_contents(),
         }
+    elif _is_bias_radar_quiz_request(message, user_id):
+        response = _bias_radar_quiz_response(user_id, message)
     elif _is_fan_attribute_quiz_request(message):
         response = {
             "report": _fan_attribute_quiz_text(message),
@@ -492,6 +497,164 @@ def _build_play_zone_flex_contents() -> dict:
             },
         ],
     )
+
+
+def _build_bias_radar_question_flex_contents(question_index: int) -> dict:
+    questions = _load_bias_radar_questions()
+    question = questions[question_index]
+    question_number = question_index + 1
+    return {
+        "type": "bubble",
+        "size": "mega",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#B5536C",
+            "paddingAll": "18px",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "本命雷達測驗",
+                    "size": "xs",
+                    "color": "#FFE6ED",
+                },
+                {
+                    "type": "text",
+                    "text": f"Q{question_number}/{len(questions)}",
+                    "size": "xl",
+                    "weight": "bold",
+                    "color": "#FFFFFF",
+                    "margin": "sm",
+                },
+            ],
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#FFF7F9",
+            "paddingAll": "18px",
+            "spacing": "md",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": question["question"],
+                    "size": "md",
+                    "weight": "bold",
+                    "color": "#5C2F3A",
+                    "wrap": True,
+                },
+                *[
+                    _bias_radar_option_button(question_index, option)
+                    for option in question["options"]
+                ],
+            ],
+        },
+    }
+
+
+def _bias_radar_option_button(question_index: int, option: str) -> dict:
+    return {
+        "type": "box",
+        "layout": "vertical",
+        "paddingAll": "12px",
+        "backgroundColor": "#FFFFFF",
+        "cornerRadius": "8px",
+        "action": {
+            "type": "postback",
+            "data": f"本命雷達:{question_index}:{option}",
+        },
+        "contents": [
+            {
+                "type": "text",
+                "text": option,
+                "size": "md",
+                "weight": "bold",
+                "color": "#B5536C",
+            },
+        ],
+    }
+
+
+def _build_bias_radar_result_flex_contents(result: dict) -> dict:
+    recommendation = result["recommendation"]
+    return {
+        "type": "bubble",
+        "size": "mega",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#B5536C",
+            "paddingAll": "18px",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "你的本命雷達結果",
+                    "size": "xs",
+                    "color": "#FFE6ED",
+                },
+                {
+                    "type": "text",
+                    "text": f"{recommendation['artist']} {recommendation['member']}",
+                    "size": "xl",
+                    "weight": "bold",
+                    "color": "#FFFFFF",
+                    "margin": "sm",
+                    "wrap": True,
+                },
+            ],
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#FFF7F9",
+            "paddingAll": "18px",
+            "spacing": "md",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": f"類型：{_bias_radar_group_type_label(recommendation)}",
+                    "size": "sm",
+                    "color": "#5C2F3A",
+                    "wrap": True,
+                },
+                {
+                    "type": "text",
+                    "text": f"命中標籤：{result['matched_label_text']}",
+                    "size": "sm",
+                    "color": "#5C2F3A",
+                    "wrap": True,
+                },
+                {
+                    "type": "text",
+                    "text": result["reason"],
+                    "size": "sm",
+                    "color": "#7A3A4A",
+                    "wrap": True,
+                },
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "height": "sm",
+                    "color": "#8B5E52",
+                    "action": {
+                        "type": "message",
+                        "label": "再測一次",
+                        "text": "本命雷達測驗",
+                    },
+                },
+                {
+                    "type": "button",
+                    "style": "secondary",
+                    "height": "sm",
+                    "action": {
+                        "type": "message",
+                        "label": "回 Play Zone",
+                        "text": "互動專區",
+                    },
+                },
+            ],
+        },
+    }
 
 
 def _build_fan_attribute_quiz_flex_contents(message: str) -> dict:
@@ -970,6 +1133,15 @@ def _is_fan_attribute_quiz_request(message: str) -> bool:
     return normalized == "粉絲屬性測驗" or normalized.startswith("粉絲屬性測驗:")
 
 
+def _is_bias_radar_quiz_request(message: str, user_id: str = "analyze-user") -> bool:
+    normalized = message.strip()
+    return (
+        normalized in BIAS_RADAR_TRIGGERS
+        or normalized.startswith("本命雷達:")
+        or user_id in bias_radar_sessions
+    )
+
+
 def _is_daily_kpop_request(message: str) -> bool:
     normalized = message.strip().casefold()
     return normalized in {
@@ -984,7 +1156,7 @@ def _is_daily_kpop_request(message: str) -> bool:
 
 def _is_play_zone_placeholder_request(message: str) -> bool:
     normalized = message.strip()
-    return normalized in {"本命雷達測驗", "粉絲屬性測驗", "認人測驗", "神圖抽卡", "我的雷達"}
+    return normalized in {"粉絲屬性測驗", "認人測驗", "神圖抽卡", "我的雷達"}
 
 
 def _is_daily_kpop_category_request(message: str) -> bool:
@@ -1048,6 +1220,8 @@ def _reply_text_for_message(message: str) -> str:
         return _build_help_message().text
     if _is_play_zone_request(message):
         return "請在 LINE 中點選 K-pop Play Zone 卡片開始互動。"
+    if _is_bias_radar_quiz_request(message):
+        return _bias_radar_quiz_response("text-user", message)["report"]
     if _is_fan_attribute_quiz_request(message):
         return _fan_attribute_quiz_text(message)
     if _is_daily_kpop_request(message):
@@ -1092,6 +1266,223 @@ def _photo_card_placeholder_text() -> str:
     if card:
         return _format_photo_card_recommendation(card)
     return PHOTO_CARD_EMPTY_TEXT
+
+
+def _bias_radar_quiz_response(user_id: str, message: str) -> dict:
+    normalized = message.strip()
+    questions = _load_bias_radar_questions()
+    if normalized in BIAS_RADAR_TRIGGERS:
+        bias_radar_sessions[user_id] = {"question_index": 0, "answers": []}
+        return {
+            "report": _bias_radar_question_text(0),
+            "flex": _build_bias_radar_question_flex_contents(0),
+        }
+
+    session = bias_radar_sessions.get(user_id)
+    if not session:
+        bias_radar_sessions[user_id] = {"question_index": 0, "answers": []}
+        return {
+            "report": _bias_radar_question_text(0),
+            "flex": _build_bias_radar_question_flex_contents(0),
+        }
+
+    question_index = int(session.get("question_index", 0))
+    option = _bias_radar_answer_from_message(normalized, question_index)
+    if option is None:
+        return {
+            "report": _bias_radar_question_text(question_index),
+            "flex": _build_bias_radar_question_flex_contents(question_index),
+        }
+
+    answers = [str(answer) for answer in session.get("answers", [])]
+    answers.append(option)
+    question_index += 1
+    if question_index < len(questions):
+        bias_radar_sessions[user_id] = {
+            "question_index": question_index,
+            "answers": answers,
+        }
+        return {
+            "report": _bias_radar_question_text(question_index),
+            "flex": _build_bias_radar_question_flex_contents(question_index),
+        }
+
+    bias_radar_sessions.pop(user_id, None)
+    result = _score_bias_radar_result(answers)
+    return {
+        "report": _format_bias_radar_result_text(result),
+        "flex": _build_bias_radar_result_flex_contents(result),
+    }
+
+
+def _bias_radar_answer_from_message(message: str, question_index: int) -> str | None:
+    questions = _load_bias_radar_questions()
+    if question_index >= len(questions):
+        return None
+    options = questions[question_index]["options"]
+
+    if message.startswith("本命雷達:"):
+        parts = message.split(":", 2)
+        if len(parts) != 3:
+            return None
+        try:
+            action_question_index = int(parts[1])
+        except ValueError:
+            return None
+        if action_question_index != question_index:
+            return None
+        option = parts[2].strip()
+    else:
+        option = message.strip()
+
+    if option in options:
+        return option
+    return None
+
+
+def _bias_radar_question_text(question_index: int) -> str:
+    questions = _load_bias_radar_questions()
+    question_number = question_index + 1
+    return f"本命雷達測驗 Q{question_number}/{len(questions)}：請在 LINE 卡片中選擇最符合你的答案。"
+
+
+def _load_bias_radar_questions() -> list[dict]:
+    json_path = settings.base_dir / "data" / "play_zone" / "bias_radar_questions.json"
+    with json_path.open(encoding="utf-8") as file:
+        questions = json.load(file)
+    return questions if isinstance(questions, list) else []
+
+
+def _load_bias_radar_members() -> list[dict[str, str]]:
+    csv_path = settings.base_dir / "data" / "play_zone" / "bias_radar_members.csv"
+    if not csv_path.exists():
+        return []
+    with csv_path.open(newline="", encoding="utf-8") as file:
+        return [
+            row
+            for row in csv.DictReader(file)
+            if _bias_radar_row_is_usable(row)
+        ]
+
+
+def _bias_radar_row_is_usable(row: dict[str, str]) -> bool:
+    required_fields = ("id", "artist", "member", "gender_group", "group_type", "url")
+    if any(not row.get(field, "").strip() for field in required_fields):
+        return False
+    filled_tag_fields = sum(
+        1
+        for field in ("appearance", "position", "vibe", "relationship")
+        if row.get(field, "").strip()
+    )
+    return filled_tag_fields >= 3
+
+
+def _score_bias_radar_result(answers: list[str]) -> dict:
+    members = _load_bias_radar_members()
+    if not members:
+        raise ValueError("bias_radar_members.csv has no usable rows")
+
+    scored_rows = [
+        _score_bias_radar_member(member, answers)
+        for member in members
+    ]
+    max_score = max(score for score, _, _ in scored_rows)
+    top_matches = [
+        (member, matched)
+        for score, member, matched in scored_rows
+        if score == max_score
+    ]
+    recommendation, matched = random.choice(top_matches)
+    matched_label_text = "、".join(matched) if matched else "整體氣質接近"
+    return {
+        "recommendation": recommendation,
+        "matched": matched,
+        "matched_label_text": matched_label_text,
+        "score": max_score,
+        "reason": _bias_radar_reason(recommendation, answers, matched),
+    }
+
+
+def _score_bias_radar_member(
+    member: dict[str, str],
+    answers: list[str],
+) -> tuple[int, dict[str, str], list[str]]:
+    score = 0
+    matched: list[str] = []
+    gender_answer, appearance_answer, position_answer, vibe_answer, relationship_answer = answers
+
+    if _bias_radar_gender_matches(member, gender_answer):
+        score += 3
+
+    for field, answer in (
+        ("appearance", appearance_answer),
+        ("position", position_answer),
+        ("vibe", vibe_answer),
+        ("relationship", relationship_answer),
+    ):
+        if answer in _split_bias_radar_tags(member.get(field, "")):
+            score += 2
+            matched.append(answer)
+
+    return score, member, matched
+
+
+def _bias_radar_gender_matches(member: dict[str, str], answer: str) -> bool:
+    group_type = member.get("group_type", "").strip()
+    gender_group = member.get("gender_group", "").strip()
+    if answer == "都可以":
+        return True
+    if answer == "男團":
+        return group_type == "boy_group" or gender_group == "male"
+    if answer == "女團":
+        return group_type == "girl_group" or gender_group == "female"
+    return False
+
+
+def _split_bias_radar_tags(raw_value: str) -> set[str]:
+    return {
+        tag.strip()
+        for tag in raw_value.split("|")
+        if tag.strip()
+    }
+
+
+def _bias_radar_group_type_label(member: dict[str, str]) -> str:
+    labels = {
+        "boy_group": "男團",
+        "girl_group": "女團",
+        "solo": "solo",
+        "mixed_group": "混合團",
+    }
+    return labels.get(member.get("group_type", "").strip(), "未分類")
+
+
+def _bias_radar_reason(
+    recommendation: dict[str, str],
+    answers: list[str],
+    matched: list[str],
+) -> str:
+    _, appearance_answer, position_answer, vibe_answer, relationship_answer = answers
+    focus_tags = matched or [appearance_answer, position_answer, vibe_answer, relationship_answer]
+    focus_text = "、".join(focus_tags[:3])
+    return (
+        f"你偏好{focus_text}的本命型，所以推薦你關注 "
+        f"{recommendation['artist']} {recommendation['member']}。"
+    )
+
+
+def _format_bias_radar_result_text(result: dict) -> str:
+    recommendation = result["recommendation"]
+    return "\n".join(
+        [
+            "你的本命雷達結果",
+            f"推薦：{recommendation['artist']} {recommendation['member']}",
+            f"類型：{_bias_radar_group_type_label(recommendation)}",
+            f"命中標籤：{result['matched_label_text']}",
+            result["reason"],
+            recommendation["url"],
+        ]
+    )
 
 
 def _parse_fan_attribute_quiz_state(message: str) -> dict:
@@ -1291,7 +1682,18 @@ def _format_photo_card_recommendation(card: dict[str, str]) -> str:
     artist = card.get("artist", "").strip()
     card_type = card.get("type", "").strip()
     url = card.get("url", "").strip()
-    return f"恭喜你今天抽到的是 {artist} 的 {card_type}\n{url}"
+    return "\n".join(
+        [
+            "✨ 神圖抽卡結果 ✨",
+            "",
+            "🎉 恭喜你今天抽到",
+            f"💖 {artist}",
+            f"📸 類型：{card_type}",
+            "",
+            "🔗 點開看神圖",
+            url,
+        ]
+    )
 
 
 def _daily_kpop_source_key(rows: list[dict[str, str]]) -> tuple[tuple[str, str, str, str], ...]:
@@ -1470,15 +1872,19 @@ def _is_line_message_debounced(event: MessageEvent, user_text: str) -> bool:
 
 
 def _line_message_key(event: MessageEvent, user_text: str) -> tuple[str, str] | None:
+    source_id = _line_user_id(event)
+    if not source_id:
+        return None
+    return source_id, user_text.strip()
+
+
+def _line_user_id(event: object) -> str:
     source = getattr(event, "source", None)
-    source_id = (
+    return str(
         getattr(source, "user_id", "")
         or getattr(source, "group_id", "")
         or getattr(source, "room_id", "")
     )
-    if not source_id:
-        return None
-    return str(source_id), user_text.strip()
 
 
 def _prune_ordered_timestamps(
@@ -1550,6 +1956,7 @@ if line_handler is not None and MessageEvent is not None and TextMessageContent 
         if not line_configuration:
             _clear_line_event_processing(event)
             return
+        line_user_id = _line_user_id(event) or "line-user"
         with ApiClient(line_configuration) as api_client:
             line_bot_api = MessagingApi(api_client)
             reply_messages = None
@@ -1565,6 +1972,13 @@ if line_handler is not None and MessageEvent is not None and TextMessageContent 
                     alt_text="K-pop Play Zone",
                 )
                 fallback_text = "請選擇：本命雷達測驗、粉絲屬性測驗、認人測驗、神圖抽卡"
+            elif _is_bias_radar_quiz_request(user_text, line_user_id):
+                response = _bias_radar_quiz_response(line_user_id, user_text)
+                reply_message = _build_line_flex_message(
+                    response["flex"],
+                    alt_text="本命雷達測驗",
+                )
+                fallback_text = fit_line_text(response["report"])
             elif _is_fan_attribute_quiz_request(user_text):
                 reply_message = _build_line_flex_message(
                     _build_fan_attribute_quiz_flex_contents(user_text),
