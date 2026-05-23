@@ -1769,8 +1769,14 @@ def _member_quiz_answer_response(message: str) -> dict:
     if selected_answer == quiz["answer"]:
         report = "答對了！"
     else:
-        report = f"答錯了。正解是 {quiz['answer']}。"
+        report = f"答錯了。正解是 {_member_quiz_answer_label(quiz)}。"
     return {"report": report, "flex": _build_member_quiz_again_flex_contents()}
+
+
+def _member_quiz_answer_label(quiz: dict[str, str]) -> str:
+    if quiz.get("answer") == "A":
+        return quiz.get("option_a", "").strip()
+    return quiz.get("option_b", "").strip()
 
 
 def _parse_member_quiz_answer(message: str) -> tuple[str, str]:

@@ -358,7 +358,7 @@ def test_member_quiz_answers_return_result_and_again_flex(monkeypatch, tmp_path:
     wrong_payload = wrong_response.get_json()
 
     assert correct_payload["report"] == "答對了！"
-    assert wrong_payload["report"] == "答錯了。正解是 A。"
+    assert wrong_payload["report"] == "答錯了。正解是 Karina。"
     assert correct_payload["flex"]["header"]["contents"][0]["text"] == "再來一題？"
     assert correct_payload["flex"]["body"]["contents"][1]["action"]["text"] == "認人測驗"
     assert correct_payload["flex"]["body"]["contents"][2]["action"]["text"] == "互動專區"
