@@ -1053,9 +1053,9 @@ def _member_quiz_option_button(quiz: dict[str, str], option: str, label: str) ->
         "height": "sm",
         "color": "#5D6F66",
         "action": {
-            "type": "message",
+            "type": "postback",
             "label": label,
-            "text": f"認人答案:{quiz['id']}:{option}",
+            "data": f"認人答案:{quiz['id']}:{option}",
         },
     }
 

@@ -328,8 +328,16 @@ def test_member_quiz_with_data_returns_question_flex(monkeypatch, tmp_path: Path
     assert flex["hero"]["aspectMode"] == "fit"
     assert flex["hero"]["aspectRatio"] == "1:1"
     assert flex["hero"]["url"] == "http://localhost/play-zone/images/q001.jpg"
-    assert flex["body"]["contents"][0]["action"]["text"] == "認人答案:q001:A"
-    assert flex["body"]["contents"][1]["action"]["text"] == "認人答案:q001:B"
+    first_action = flex["body"]["contents"][0]["action"]
+    second_action = flex["body"]["contents"][1]["action"]
+    assert first_action["type"] == "postback"
+    assert first_action["data"] == "認人答案:q001:A"
+    assert "text" not in first_action
+    assert "displayText" not in first_action
+    assert second_action["type"] == "postback"
+    assert second_action["data"] == "認人答案:q001:B"
+    assert "text" not in second_action
+    assert "displayText" not in second_action
 
 
 def test_member_quiz_answers_return_result_and_again_flex(monkeypatch, tmp_path: Path) -> None:
