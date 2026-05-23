@@ -7,13 +7,13 @@ import random
 import re
 import sqlite3
 import unicodedata
+from io import BytesIO
 from collections import OrderedDict
-from math import gcd
 from pathlib import Path
 from time import monotonic, time
 from urllib.parse import quote
 
-from flask import Flask, abort, jsonify, request, send_from_directory
+from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 
 from src.agent import KpopAnalysisAgent, SUPPORTED_ARTISTS
 from src.config import settings
@@ -257,6 +257,14 @@ def play_zone_member_quiz_image(filename: str):
     if safe_filename is None:
         abort(404)
     return send_from_directory(_member_quiz_image_dir(), safe_filename)
+
+
+@app.get("/play-zone/images/flex/<path:filename>")
+def play_zone_member_quiz_flex_image(filename: str):
+    safe_filename = _safe_member_quiz_image_filename(filename)
+    if safe_filename is None:
+        abort(404)
+    return _send_member_quiz_flex_image(safe_filename)
 
 
 @app.post("/analyze")
@@ -1006,7 +1014,7 @@ def _build_member_quiz_question_flex_contents(quiz: dict[str, str]) -> dict:
             "type": "image",
             "url": _member_quiz_image_url(quiz),
             "size": "full",
-            "aspectRatio": _member_quiz_image_aspect_ratio(quiz),
+            "aspectRatio": "1:1",
             "aspectMode": "cover",
         },
         "header": {
@@ -1871,26 +1879,32 @@ def _member_quiz_image_url(quiz: dict[str, str]) -> str:
     forwarded_proto = request.headers.get("X-Forwarded-Proto", "").split(",", 1)[0].strip()
     host = forwarded_host or request.host
     scheme = forwarded_proto or request.scheme
-    return f"{scheme}://{host}/play-zone/images/{quote(filename)}"
+    return f"{scheme}://{host}/play-zone/images/flex/{quote(filename)}"
 
 
-def _member_quiz_image_aspect_ratio(quiz: dict[str, str]) -> str:
-    filename = _member_quiz_filename_from_image_path(quiz.get("image_path", ""))
-    if filename is None:
-        return "1:1"
-
+def _send_member_quiz_flex_image(filename: str):
     try:
         from PIL import Image, ImageOps
 
         with Image.open(_member_quiz_image_dir() / filename) as image:
-            width, height = ImageOps.exif_transpose(image).size
+            source = ImageOps.exif_transpose(image).convert("RGB")
+            side = max(source.size)
+            canvas = Image.new("RGB", (side, side), color=(247, 250, 248))
+            offset = ((side - source.width) // 2, (side - source.height) // 2)
+            canvas.paste(source, offset)
+            output = BytesIO()
+            canvas.save(output, format="JPEG", quality=92, optimize=True)
     except Exception:
-        return "1:1"
+        logger.exception("Could not build member quiz Flex image: %s", filename)
+        abort(404)
 
-    if width <= 0 or height <= 0:
-        return "1:1"
-    divisor = gcd(width, height)
-    return f"{width // divisor}:{height // divisor}"
+    output.seek(0)
+    return send_file(
+        output,
+        mimetype="image/jpeg",
+        download_name=f"{Path(filename).stem}_flex.jpg",
+        max_age=60 * 60,
+    )
 
 
 def _member_quiz_filename_from_image_path(image_path: str) -> str | None:

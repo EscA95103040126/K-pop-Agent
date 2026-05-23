@@ -1,5 +1,6 @@
 import csv
 import json
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -327,8 +328,8 @@ def test_member_quiz_with_data_returns_question_flex(monkeypatch, tmp_path: Path
     assert payload["report"] == "認人測驗：左邊是誰？"
     assert flex["hero"]["type"] == "image"
     assert flex["hero"]["aspectMode"] == "cover"
-    assert flex["hero"]["aspectRatio"] == "2:3"
-    assert flex["hero"]["url"] == "http://localhost/play-zone/images/q001.jpg"
+    assert flex["hero"]["aspectRatio"] == "1:1"
+    assert flex["hero"]["url"] == "http://localhost/play-zone/images/flex/q001.jpg"
     first_action = flex["body"]["contents"][0]["action"]
     second_action = flex["body"]["contents"][1]["action"]
     assert first_action["type"] == "postback"
@@ -416,6 +417,22 @@ def test_member_quiz_image_route_blocks_path_traversal(monkeypatch, tmp_path: Pa
     assert ok_response.status_code == 200
     assert traversal_response.status_code == 404
     assert unsupported_response.status_code == 404
+
+
+def test_member_quiz_flex_image_route_returns_square_jpeg(monkeypatch, tmp_path: Path) -> None:
+    _use_member_quiz_csv(
+        monkeypatch,
+        tmp_path,
+        "id,question,image_path,option_a,option_b,answer\n",
+    )
+    client = app.test_client()
+
+    response = client.get("/play-zone/images/flex/q001.jpg")
+
+    assert response.status_code == 200
+    assert response.content_type == "image/jpeg"
+    with Image.open(BytesIO(response.data)) as image:
+        assert image.size == (3, 3)
 
 
 def test_unknown_input_does_not_crash() -> None:
