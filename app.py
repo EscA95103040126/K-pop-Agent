@@ -8,9 +8,11 @@ import re
 import sqlite3
 import unicodedata
 from collections import OrderedDict
+from pathlib import Path
 from time import monotonic, time
+from urllib.parse import quote
 
-from flask import Flask, abort, jsonify, request
+from flask import Flask, abort, jsonify, request, send_from_directory
 
 from src.agent import KpopAnalysisAgent, SUPPORTED_ARTISTS
 from src.config import settings
@@ -64,9 +66,16 @@ daily_kpop_queues: dict[str, list[dict[str, str]]] = {}
 daily_kpop_source_keys: dict[str, tuple[tuple[str, str, str, str], ...]] = {}
 photo_card_queue: list[dict[str, str]] = []
 photo_card_source_key: tuple[tuple[str, str, str], ...] = ()
+member_quiz_queue: list[dict[str, str]] = []
+member_quiz_source_key: tuple[tuple[str, str, str, str, str, str], ...] = ()
 BIAS_RADAR_TRIGGERS = {"本命雷達測驗", "本命雷達", "測本命"}
 bias_radar_sessions: dict[str, dict[str, object]] = {}
 PHOTO_CARD_EMPTY_TEXT = "目前還沒有神圖資料，請先補 data/play_zone/photo_cards.csv"
+MEMBER_QUIZ_EMPTY_TEXT = (
+    "目前還沒有認人測驗題目，請先補 data/play_zone/member_quiz.csv，"
+    "並把圖片放到 data/play_zone/member_quiz_images/"
+)
+MEMBER_QUIZ_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 FAN_ATTRIBUTE_TYPES = {
     "group": {
         "name": "團飯",
@@ -241,6 +250,14 @@ def health() -> tuple[dict, int]:
     }, 200 if status == "ok" else 503
 
 
+@app.get("/play-zone/images/<path:filename>")
+def play_zone_member_quiz_image(filename: str):
+    safe_filename = _safe_member_quiz_image_filename(filename)
+    if safe_filename is None:
+        abort(404)
+    return send_from_directory(_member_quiz_image_dir(), safe_filename)
+
+
 @app.post("/analyze")
 def analyze() -> tuple[dict, int]:
     payload = request.get_json(silent=True) or {}
@@ -264,6 +281,10 @@ def analyze() -> tuple[dict, int]:
             "report": _fan_attribute_quiz_text(message),
             "flex": _build_fan_attribute_quiz_flex_contents(message),
         }
+    elif _is_member_quiz_answer(message):
+        response = _member_quiz_answer_response(message)
+    elif _is_member_quiz_request(message):
+        response = _member_quiz_question_response()
     elif _is_daily_kpop_request(message):
         response = {
             "report": "每日一首 K-pop",
@@ -976,6 +997,127 @@ def _build_photo_card_redraw_flex_contents() -> dict:
     }
 
 
+def _build_member_quiz_question_flex_contents(quiz: dict[str, str]) -> dict:
+    return {
+        "type": "bubble",
+        "size": "mega",
+        "hero": {
+            "type": "image",
+            "url": _member_quiz_image_url(quiz),
+            "size": "full",
+            "aspectRatio": "20:13",
+            "aspectMode": "cover",
+        },
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#5D6F66",
+            "paddingAll": "18px",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "認人測驗",
+                    "size": "xs",
+                    "color": "#E7F1EC",
+                },
+                {
+                    "type": "text",
+                    "text": quiz["question"],
+                    "size": "xl",
+                    "weight": "bold",
+                    "color": "#FFFFFF",
+                    "margin": "sm",
+                    "wrap": True,
+                },
+            ],
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#F7FAF8",
+            "paddingAll": "18px",
+            "spacing": "md",
+            "contents": [
+                _member_quiz_option_button(quiz, "A", quiz["option_a"]),
+                _member_quiz_option_button(quiz, "B", quiz["option_b"]),
+            ],
+        },
+    }
+
+
+def _member_quiz_option_button(quiz: dict[str, str], option: str, label: str) -> dict:
+    return {
+        "type": "button",
+        "style": "primary",
+        "height": "sm",
+        "color": "#5D6F66",
+        "action": {
+            "type": "message",
+            "label": label,
+            "text": f"認人答案:{quiz['id']}:{option}",
+        },
+    }
+
+
+def _build_member_quiz_again_flex_contents() -> dict:
+    return {
+        "type": "bubble",
+        "size": "kilo",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#5D6F66",
+            "paddingAll": "14px",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "再來一題？",
+                    "size": "md",
+                    "weight": "bold",
+                    "color": "#FFFFFF",
+                },
+            ],
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#F7FAF8",
+            "paddingAll": "14px",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "想繼續挑戰認人測驗嗎？",
+                    "size": "xs",
+                    "color": "#3F5149",
+                    "wrap": True,
+                },
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "height": "sm",
+                    "color": "#5D6F66",
+                    "action": {
+                        "type": "message",
+                        "label": "再一題",
+                        "text": "認人測驗",
+                    },
+                },
+                {
+                    "type": "button",
+                    "style": "secondary",
+                    "height": "sm",
+                    "action": {
+                        "type": "message",
+                        "label": "回 Play Zone",
+                        "text": "互動專區",
+                    },
+                },
+            ],
+        },
+    }
+
+
 def _daily_redraw_button(label: str, text: str) -> dict:
     return {
         "type": "button",
@@ -1154,9 +1296,18 @@ def _is_daily_kpop_request(message: str) -> bool:
     }
 
 
+def _is_member_quiz_request(message: str) -> bool:
+    normalized = message.strip()
+    return normalized in {"認人測驗", "再一題", "再來一題"}
+
+
+def _is_member_quiz_answer(message: str) -> bool:
+    return re.fullmatch(r"認人答案:[^:]+:[AB]", message.strip()) is not None
+
+
 def _is_play_zone_placeholder_request(message: str) -> bool:
     normalized = message.strip()
-    return normalized in {"粉絲屬性測驗", "認人測驗", "神圖抽卡", "我的雷達"}
+    return normalized in {"粉絲屬性測驗", "神圖抽卡", "我的雷達"}
 
 
 def _is_daily_kpop_category_request(message: str) -> bool:
@@ -1224,6 +1375,10 @@ def _reply_text_for_message(message: str) -> str:
         return _bias_radar_quiz_response("text-user", message)["report"]
     if _is_fan_attribute_quiz_request(message):
         return _fan_attribute_quiz_text(message)
+    if _is_member_quiz_answer(message):
+        return _member_quiz_answer_response(message)["report"]
+    if _is_member_quiz_request(message):
+        return _member_quiz_question_response()["report"]
     if _is_daily_kpop_request(message):
         return "請在 LINE 中點選每日一首 K-pop 卡片選擇 MV、直拍或經典舞台。"
     if _is_photo_card_request(message):
@@ -1586,6 +1741,146 @@ def _fan_attribute_quiz_text(message: str) -> str:
         f"{fan_type['tip']}\n"
         f"分數：{score_text}"
     )
+
+
+def _member_quiz_question_response() -> dict:
+    quiz = _load_member_quiz_recommendation()
+    if not quiz:
+        return {"report": MEMBER_QUIZ_EMPTY_TEXT, "flex": None}
+    return {
+        "report": f"認人測驗：{quiz['question']}",
+        "flex": _build_member_quiz_question_flex_contents(quiz),
+    }
+
+
+def _member_quiz_answer_response(message: str) -> dict:
+    quiz_id, selected_answer = _parse_member_quiz_answer(message)
+    if not quiz_id or not selected_answer:
+        return {"report": "這題資料已不存在，請重新抽一題。", "flex": None}
+
+    quiz = _find_member_quiz_row(quiz_id)
+    if not quiz:
+        return {
+            "report": "這題資料已不存在，請重新抽一題。",
+            "flex": None,
+        }
+
+    if selected_answer == quiz["answer"]:
+        report = "答對了！"
+    else:
+        report = f"答錯了。正解是 {quiz['answer']}。"
+    return {"report": report, "flex": _build_member_quiz_again_flex_contents()}
+
+
+def _parse_member_quiz_answer(message: str) -> tuple[str, str]:
+    parts = message.strip().split(":")
+    if len(parts) != 3 or parts[0] != "認人答案" or parts[2] not in {"A", "B"}:
+        return "", ""
+    return parts[1].strip(), parts[2]
+
+
+def _find_member_quiz_row(quiz_id: str) -> dict[str, str] | None:
+    for row in _load_member_quiz_rows():
+        if row["id"] == quiz_id:
+            return row
+    return None
+
+
+def _load_member_quiz_recommendation() -> dict[str, str] | None:
+    global member_quiz_queue, member_quiz_source_key
+
+    rows = _load_member_quiz_rows()
+    if not rows:
+        member_quiz_queue = []
+        member_quiz_source_key = ()
+        return None
+
+    source_key = _member_quiz_source_key(rows)
+    if not member_quiz_queue or member_quiz_source_key != source_key:
+        member_quiz_queue = rows[:]
+        random.shuffle(member_quiz_queue)
+        member_quiz_source_key = source_key
+    return member_quiz_queue.pop()
+
+
+def _load_member_quiz_rows() -> list[dict[str, str]]:
+    csv_path = settings.base_dir / "data" / "play_zone" / "member_quiz.csv"
+    if not csv_path.exists():
+        return []
+    with csv_path.open(newline="", encoding="utf-8") as file:
+        return [
+            _normalize_member_quiz_row(row)
+            for row in csv.DictReader(file)
+            if _member_quiz_row_is_usable(row)
+        ]
+
+
+def _normalize_member_quiz_row(row: dict[str, str]) -> dict[str, str]:
+    return {
+        "id": row.get("id", "").strip(),
+        "question": row.get("question", "").strip(),
+        "image_path": row.get("image_path", "").strip(),
+        "option_a": row.get("option_a", "").strip(),
+        "option_b": row.get("option_b", "").strip(),
+        "answer": row.get("answer", "").strip().upper(),
+    }
+
+
+def _member_quiz_row_is_usable(row: dict[str, str]) -> bool:
+    normalized = _normalize_member_quiz_row(row)
+    required_fields = ("id", "question", "image_path", "option_a", "option_b")
+    return (
+        all(normalized[field] for field in required_fields)
+        and normalized["answer"] in {"A", "B"}
+        and _member_quiz_filename_from_image_path(normalized["image_path"]) is not None
+    )
+
+
+def _member_quiz_source_key(
+    rows: list[dict[str, str]],
+) -> tuple[tuple[str, str, str, str, str, str], ...]:
+    return tuple(
+        (
+            row.get("id", "").strip(),
+            row.get("question", "").strip(),
+            row.get("image_path", "").strip(),
+            row.get("option_a", "").strip(),
+            row.get("option_b", "").strip(),
+            row.get("answer", "").strip(),
+        )
+        for row in rows
+    )
+
+
+def _member_quiz_image_dir() -> Path:
+    return settings.base_dir / "data" / "play_zone" / "member_quiz_images"
+
+
+def _member_quiz_image_url(quiz: dict[str, str]) -> str:
+    filename = _member_quiz_filename_from_image_path(quiz.get("image_path", ""))
+    if filename is None:
+        filename = ""
+    forwarded_host = request.headers.get("X-Forwarded-Host", "").split(",", 1)[0].strip()
+    forwarded_proto = request.headers.get("X-Forwarded-Proto", "").split(",", 1)[0].strip()
+    host = forwarded_host or request.host
+    scheme = forwarded_proto or request.scheme
+    return f"{scheme}://{host}/play-zone/images/{quote(filename)}"
+
+
+def _member_quiz_filename_from_image_path(image_path: str) -> str | None:
+    normalized = image_path.strip().replace("\\", "/")
+    filename = normalized.rsplit("/", 1)[-1]
+    return _safe_member_quiz_image_filename(filename)
+
+
+def _safe_member_quiz_image_filename(filename: str) -> str | None:
+    normalized = filename.strip().replace("\\", "/")
+    path = Path(normalized)
+    if not normalized or "/" in normalized or path.name != normalized:
+        return None
+    if path.suffix.casefold() not in MEMBER_QUIZ_IMAGE_EXTENSIONS:
+        return None
+    return normalized
 
 
 def _daily_kpop_placeholder_text(message: str) -> str:
@@ -1985,6 +2280,28 @@ if line_handler is not None and MessageEvent is not None and TextMessageContent 
                     alt_text="粉絲屬性測驗",
                 )
                 fallback_text = fit_line_text(_fan_attribute_quiz_text(user_text))
+            elif _is_member_quiz_answer(user_text):
+                response = _member_quiz_answer_response(user_text)
+                fallback_text = fit_line_text(response["report"])
+                reply_message = TextMessage(text=fallback_text)
+                if response["flex"] is not None:
+                    reply_messages = [
+                        reply_message,
+                        _build_line_flex_message(
+                            response["flex"],
+                            alt_text="再來一題？",
+                        ),
+                    ]
+            elif _is_member_quiz_request(user_text):
+                response = _member_quiz_question_response()
+                fallback_text = fit_line_text(response["report"])
+                if response["flex"] is None:
+                    reply_message = TextMessage(text=fallback_text)
+                else:
+                    reply_message = _build_line_flex_message(
+                        response["flex"],
+                        alt_text="認人測驗",
+                    )
             elif _is_daily_kpop_request(user_text):
                 reply_message = _build_line_flex_message(
                     _build_daily_kpop_flex_contents(),

@@ -164,6 +164,20 @@ def _use_photo_card_csv(monkeypatch, tmp_path: Path, csv_text: str) -> Path:
     return csv_path
 
 
+def _use_member_quiz_csv(monkeypatch, tmp_path: Path, csv_text: str) -> Path:
+    play_zone_dir = tmp_path / "data" / "play_zone"
+    image_dir = play_zone_dir / "member_quiz_images"
+    image_dir.mkdir(parents=True)
+    (image_dir / "q001.jpg").write_bytes(b"fake image")
+    (image_dir / "q002.png").write_bytes(b"fake image")
+    csv_path = play_zone_dir / "member_quiz.csv"
+    csv_path.write_text(csv_text, encoding="utf-8")
+    monkeypatch.setattr(app_module, "settings", SimpleNamespace(base_dir=tmp_path))
+    app_module.member_quiz_queue = []
+    app_module.member_quiz_source_key = ()
+    return csv_path
+
+
 def test_photo_cards_csv_template_is_readable() -> None:
     csv_path = Path(app_module.__file__).resolve().parent / "data" / "play_zone" / "photo_cards.csv"
 
@@ -269,6 +283,130 @@ def test_photo_card_queue_avoids_short_term_repeats(monkeypatch, tmp_path: Path)
     assert len(draw_keys) == 3
 
 
+def test_member_quiz_csv_template_is_readable() -> None:
+    csv_path = Path(app_module.__file__).resolve().parent / "data" / "play_zone" / "member_quiz.csv"
+
+    header = csv_path.read_text(encoding="utf-8").splitlines()[0]
+
+    assert header == "id,question,image_path,option_a,option_b,answer"
+
+
+def test_member_quiz_empty_csv_does_not_crash(monkeypatch, tmp_path: Path) -> None:
+    _use_member_quiz_csv(
+        monkeypatch,
+        tmp_path,
+        "id,question,image_path,option_a,option_b,answer\n",
+    )
+    client = app.test_client()
+
+    response = client.post("/analyze", json={"message": "認人測驗"})
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["report"] == app_module.MEMBER_QUIZ_EMPTY_TEXT
+    assert payload["flex"] is None
+
+
+def test_member_quiz_with_data_returns_question_flex(monkeypatch, tmp_path: Path) -> None:
+    _use_member_quiz_csv(
+        monkeypatch,
+        tmp_path,
+        (
+            "id,question,image_path,option_a,option_b,answer\n"
+            "q001,左邊是誰？,data/play_zone/member_quiz_images/q001.jpg,Winter,Karina,A\n"
+        ),
+    )
+    client = app.test_client()
+
+    response = client.post("/analyze", json={"message": "再一題"})
+    payload = response.get_json()
+    flex = payload["flex"]
+
+    assert response.status_code == 200
+    assert payload["report"] == "認人測驗：左邊是誰？"
+    assert flex["hero"]["type"] == "image"
+    assert flex["hero"]["url"] == "http://localhost/play-zone/images/q001.jpg"
+    assert flex["body"]["contents"][0]["action"]["text"] == "認人答案:q001:A"
+    assert flex["body"]["contents"][1]["action"]["text"] == "認人答案:q001:B"
+
+
+def test_member_quiz_answers_return_result_and_again_flex(monkeypatch, tmp_path: Path) -> None:
+    _use_member_quiz_csv(
+        monkeypatch,
+        tmp_path,
+        (
+            "id,question,image_path,option_a,option_b,answer\n"
+            "q001,哪一位是 Karina？,data/play_zone/member_quiz_images/q001.jpg,Karina,Giselle,A\n"
+        ),
+    )
+    client = app.test_client()
+
+    correct_response = client.post("/analyze", json={"message": "認人答案:q001:A"})
+    wrong_response = client.post("/analyze", json={"message": "認人答案:q001:B"})
+    correct_payload = correct_response.get_json()
+    wrong_payload = wrong_response.get_json()
+
+    assert correct_payload["report"] == "答對了！"
+    assert wrong_payload["report"] == "答錯了。正解是 A。"
+    assert correct_payload["flex"]["header"]["contents"][0]["text"] == "再來一題？"
+    assert correct_payload["flex"]["body"]["contents"][1]["action"]["text"] == "認人測驗"
+    assert correct_payload["flex"]["body"]["contents"][2]["action"]["text"] == "互動專區"
+
+
+def test_member_quiz_missing_id_returns_missing_text(monkeypatch, tmp_path: Path) -> None:
+    _use_member_quiz_csv(
+        monkeypatch,
+        tmp_path,
+        (
+            "id,question,image_path,option_a,option_b,answer\n"
+            "q001,哪一位是 Karina？,data/play_zone/member_quiz_images/q001.jpg,Karina,Giselle,A\n"
+        ),
+    )
+    client = app.test_client()
+
+    response = client.post("/analyze", json={"message": "認人答案:missing:A"})
+    payload = response.get_json()
+
+    assert payload["report"] == "這題資料已不存在，請重新抽一題。"
+    assert payload["flex"] is None
+
+
+def test_member_quiz_queue_avoids_short_term_repeats(monkeypatch, tmp_path: Path) -> None:
+    _use_member_quiz_csv(
+        monkeypatch,
+        tmp_path,
+        "\n".join(
+            [
+                "id,question,image_path,option_a,option_b,answer",
+                "q001,左邊是誰？,data/play_zone/member_quiz_images/q001.jpg,Winter,Karina,A",
+                "q002,右邊是誰？,data/play_zone/member_quiz_images/q002.png,Rei,Yujin,B",
+            ]
+        )
+        + "\n",
+    )
+
+    draws = [app_module._load_member_quiz_recommendation() for _ in range(2)]
+
+    assert {draw["id"] for draw in draws if draw is not None} == {"q001", "q002"}
+
+
+def test_member_quiz_image_route_blocks_path_traversal(monkeypatch, tmp_path: Path) -> None:
+    _use_member_quiz_csv(
+        monkeypatch,
+        tmp_path,
+        "id,question,image_path,option_a,option_b,answer\n",
+    )
+    client = app.test_client()
+
+    ok_response = client.get("/play-zone/images/q001.jpg")
+    traversal_response = client.get("/play-zone/images/%2E%2E/member_quiz.csv")
+    unsupported_response = client.get("/play-zone/images/q001.gif")
+
+    assert ok_response.status_code == 200
+    assert traversal_response.status_code == 404
+    assert unsupported_response.status_code == 404
+
+
 def test_unknown_input_does_not_crash() -> None:
     client = app.test_client()
 
@@ -288,3 +426,18 @@ def test_daily_kpop_entry_still_returns_flex() -> None:
     assert response.status_code == 200
     assert payload["report"] == "每日一首 K-pop"
     assert payload["flex"]["header"]["contents"][1]["text"] == "每日一首 K-pop"
+
+
+def test_member_quiz_does_not_affect_photo_card_or_fan_attribute(monkeypatch, tmp_path: Path) -> None:
+    _use_photo_card_csv(
+        monkeypatch,
+        tmp_path,
+        "artist,type,url\nKarina,直拍,https://example.com/karina\n",
+    )
+    client = app.test_client()
+
+    photo_response = client.post("/analyze", json={"message": "神圖抽卡"})
+    fan_response = client.post("/analyze", json={"message": "粉絲屬性測驗"})
+
+    assert "神圖抽卡結果" in photo_response.get_json()["report"]
+    assert fan_response.get_json()["report"].startswith("粉絲屬性測驗 Q1/5")
