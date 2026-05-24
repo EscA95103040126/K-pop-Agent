@@ -23,6 +23,18 @@ def test_route_message_detects_korean_analysis_request() -> None:
     assert intent.name == "artist_analysis"
 
 
+def test_route_message_detects_artist_next_to_cjk_text() -> None:
+    for message in (
+        "NCT輿論風險高嗎？",
+        "NCT與論風險高嗎？",
+        "ＮＣＴ 輿論風險高嗎？",
+    ):
+        intent = route_message(message)
+
+        assert intent.artist == "NCT"
+        assert intent.name == "artist_sentiment_context"
+
+
 def test_route_message_detects_weekly_chart_requests() -> None:
     for message in (
         "本週榜單",

@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 import google.generativeai as genai
+import requests
 
 from src.config import Settings, settings
-from src.router import Intent, route_message
+from src.router import ARTIST_PATTERNS, Intent, route_message
 from src.tools.chart_db import ChartHistoryRepository
 from src.tools.naver_news import NaverNewsClient
 from src.tools.sentiment import analyze_sentiment_from_csv
@@ -19,6 +21,9 @@ _SENTIMENT_FALLBACK: dict = {
     "top_keywords": [],
     "summary": "Tool D 尚未取得足夠評論樣本。",
 }
+VALID_INSIGHT_RISKS = {"高", "中", "低"}
+GEMINI_REQUEST_TIMEOUT_SECONDS = 10
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 DEMO_ARTISTS = (
     "aespa",
     "IVE",
@@ -95,8 +100,53 @@ class KpopAnalysisAgent:
 
         return self.get_artist_cache(intent.artist, period_months=intent.period_months)["report"]
 
-    def build_flex_message(self, report: str) -> dict[str, Any]:
-        return build_report_flex(report)
+    def answer_kpop_question(self, question: str) -> str:
+        if route_message(question).name == "weekly_chart":
+            return self.get_weekly_chart_cache()["report"]
+
+        artists = _extract_supported_artists(question)
+        if not artists:
+            return _kpop_scope_message()
+
+        artist_payloads = [self.get_artist_cache(artist) for artist in artists[:3]]
+        fallback = _fallback_small_analysis(question=question, payloads=artist_payloads)
+        if self.config.use_gemini_mock:
+            return fallback
+
+        try:
+            prompt = _build_small_analysis_prompt(question, artist_payloads)
+            response = requests.post(
+                GEMINI_API_URL.format(model=self.config.gemini_model),
+                params={"key": self.config.gemini_api_key},
+                json={
+                    "contents": [
+                        {
+                            "role": "user",
+                            "parts": [{"text": prompt}],
+                        }
+                    ],
+                    "generationConfig": {
+                        "temperature": 0.3,
+                        "maxOutputTokens": 260,
+                    },
+                },
+                timeout=GEMINI_REQUEST_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            data = response.json()
+            answer = data["candidates"][0]["content"]["parts"][0].get("text", "")
+            answer = _clean_small_analysis_answer(answer)
+        except Exception:
+            return fallback
+
+        return answer or fallback
+
+    def build_flex_message(
+        self,
+        report: str,
+        insight: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        return build_report_flex(report, insight=insight)
 
     def get_artist_cache(self, artist: str, period_months: int = 3) -> dict[str, Any]:
         cache_path = artist_cache_path(artist)
@@ -115,6 +165,12 @@ class KpopAnalysisAgent:
         news = self.news_client.search(artist)
         chart = self.chart_repo.get_artist_trend(artist, weeks=period_months * 4)
         sentiment = self._fetch_sentiment(artist)
+        insight = self._generate_insight(
+            artist=artist,
+            chart=chart,
+            sentiment=sentiment,
+            news=news,
+        )
         report = self._generate_local_report(
             intent=intent,
             chart=chart,
@@ -126,7 +182,8 @@ class KpopAnalysisAgent:
             "artist": artist,
             "period_months": period_months,
             "report": report,
-            "flex": self.build_flex_message(report),
+            "insight": insight,
+            "flex": self.build_flex_message(report, insight=insight),
             "sources": {
                 "chart": chart,
                 "news": news[:5],
@@ -189,6 +246,53 @@ class KpopAnalysisAgent:
             return result
         except Exception:
             return _SENTIMENT_FALLBACK
+
+    def _generate_insight(
+        self,
+        artist: str,
+        chart: dict[str, Any],
+        sentiment: dict,
+        news: list[dict[str, Any]],
+    ) -> dict[str, str]:
+        fallback = _fallback_insight(artist=artist, chart=chart, sentiment=sentiment)
+        if self.config.use_gemini_mock:
+            return fallback
+
+        s = sentiment.get("sentiment", {})
+        prompt = _build_insight_prompt(
+            artist=artist,
+            chart=chart,
+            positive=s.get("positive", 0),
+            neutral=s.get("neutral", 0),
+            negative=s.get("negative", 0),
+            news_summary=_format_news_titles(news),
+        )
+        try:
+            response = requests.post(
+                GEMINI_API_URL.format(model=self.config.gemini_model),
+                params={"key": self.config.gemini_api_key},
+                json={
+                    "contents": [
+                        {
+                            "role": "user",
+                            "parts": [{"text": prompt}],
+                        }
+                    ],
+                    "generationConfig": {
+                        "temperature": 0.2,
+                        "maxOutputTokens": 120,
+                    },
+                },
+                timeout=GEMINI_REQUEST_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            data = response.json()
+            text = data["candidates"][0]["content"]["parts"][0].get("text", "")
+            insight = _parse_insight_response(text)
+        except Exception:
+            return fallback
+
+        return insight or fallback
 
     def generate_report(
         self,
@@ -359,7 +463,10 @@ Tool D 情感分析結果：
 """.strip()
 
 
-def build_report_flex(report: str) -> dict[str, Any]:
+def build_report_flex(
+    report: str,
+    insight: dict[str, str] | None = None,
+) -> dict[str, Any]:
     sections = _extract_report_sections(report)
     artist_name = _extract_artist_name(report)
     summary = _section_body(sections.get("5", "")).strip() or "分析報告已產生。"
@@ -369,6 +476,9 @@ def build_report_flex(report: str) -> dict[str, Any]:
         ("粉絲與輿論反應", sections.get("3", "")),
         ("綜合判斷", sections.get("4", "")),
     ]
+    if _has_insight(insight):
+        block_configs.append(("市場洞察", _format_insight_block(insight or {})))
+
     body_contents: list[dict[str, Any]] = []
     for i, (title, section) in enumerate(block_configs):
         if i > 0:
@@ -377,7 +487,8 @@ def build_report_flex(report: str) -> dict[str, Any]:
                 "color": FLEX_SEPARATOR_COLOR,
                 "margin": "md",
             })
-        body_contents.append(_flex_block(title, _section_body(section)))
+        block_body = section if title == "市場洞察" else _section_body(section)
+        body_contents.append(_flex_block(title, block_body))
 
     return {
         "type": "bubble",
@@ -510,6 +621,216 @@ def _truncate(text: str, max_length: int) -> str:
     if len(text) <= max_length:
         return text
     return text[: max_length - 1].rstrip() + "…"
+
+
+def _build_insight_prompt(
+    artist: str,
+    chart: dict[str, Any],
+    positive: Any,
+    neutral: Any,
+    negative: Any,
+    news_summary: str,
+) -> str:
+    return f"""
+你是 K-pop 市場分析師，請根據以下資料產生簡短市場洞察。
+只回傳 JSON，不要其他內容。
+
+藝人：{artist}
+榜單資料：{json.dumps(chart, ensure_ascii=False)}
+情感分析：正面 {positive}、中立 {neutral}、負面 {negative}
+近期新聞：{news_summary}
+
+格式：
+{{
+  "headline": "一句話市場觀察，20字以內",
+  "risk": "高/中/低",
+  "opportunity": "一句話機會點，20字以內"
+}}
+""".strip()
+
+
+def _parse_insight_response(text: str) -> dict[str, str] | None:
+    payload = _extract_json_object(text)
+    if not isinstance(payload, dict):
+        return None
+
+    headline = _clean_insight_text(payload.get("headline"), max_length=28)
+    risk = str(payload.get("risk", "")).strip()
+    opportunity = _clean_insight_text(payload.get("opportunity"), max_length=28)
+    if not headline or risk not in VALID_INSIGHT_RISKS or not opportunity:
+        return None
+    return {
+        "headline": headline,
+        "risk": risk,
+        "opportunity": opportunity,
+    }
+
+
+def _extract_json_object(text: str) -> Any:
+    clean = text.strip()
+    if clean.startswith("```"):
+        clean = re.sub(r"^```(?:json)?\s*", "", clean)
+        clean = re.sub(r"\s*```$", "", clean).strip()
+
+    try:
+        return json.loads(clean)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", clean, flags=re.DOTALL)
+        if not match:
+            return None
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return None
+
+
+def _fallback_insight(
+    artist: str,
+    chart: dict[str, Any],
+    sentiment: dict,
+) -> dict[str, str]:
+    s = sentiment.get("sentiment", {})
+    positive = _safe_float(s.get("positive", 0))
+    negative = _safe_float(s.get("negative", 0))
+    best_rank = chart.get("best_rank", "N/A")
+    headline = _fallback_insight_headline(artist, best_rank, positive)
+    return {
+        "headline": _clean_insight_text(headline, max_length=28) or f"{artist}聲量穩定",
+        "risk": _sentiment_risk(negative),
+        "opportunity": _fallback_opportunity(best_rank=best_rank, positive=positive),
+    }
+
+
+def _fallback_insight_headline(artist: str, best_rank: Any, positive: float) -> str:
+    try:
+        rank = int(best_rank)
+    except (TypeError, ValueError):
+        rank = 999
+    if rank <= 20 and positive >= 0.5:
+        return f"{artist}本週聲量偏強"
+    if positive >= 0.5:
+        return f"{artist}留言口碑偏正向"
+    if rank <= 20:
+        return f"{artist}榜單表現亮眼"
+    return f"{artist}仍需觀察後勢"
+
+
+def _fallback_opportunity(best_rank: Any, positive: float) -> str:
+    try:
+        rank = int(best_rank)
+    except (TypeError, ValueError):
+        rank = 999
+    if rank <= 20:
+        return "放大本週上榜聲量"
+    if positive >= 0.5:
+        return "延續粉絲正面討論"
+    return "累積更多榜單資料"
+
+
+def _clean_insight_text(value: Any, max_length: int) -> str:
+    text = str(value or "").strip().replace("\n", " ")
+    text = re.sub(r"\s+", " ", text)
+    return _truncate(text, max_length)
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _has_insight(insight: dict[str, str] | None) -> bool:
+    if not insight:
+        return False
+    return bool(
+        insight.get("headline")
+        and insight.get("risk") in VALID_INSIGHT_RISKS
+        and insight.get("opportunity")
+    )
+
+
+def _format_insight_block(insight: dict[str, str]) -> str:
+    return "\n".join(
+        [
+            str(insight.get("headline", "")).strip(),
+            f"風險：{insight.get('risk', '低')}",
+            f"機會：{insight.get('opportunity', '')}",
+        ]
+    )
+
+
+def _extract_supported_artists(message: str) -> list[str]:
+    normalized = unicodedata.normalize("NFKC", message)
+    artists: list[str] = []
+    for artist, pattern in ARTIST_PATTERNS.items():
+        if artist in SUPPORTED_ARTISTS and pattern.search(normalized):
+            artists.append(artist)
+    return artists
+
+
+def _build_small_analysis_prompt(question: str, payloads: list[dict[str, Any]]) -> str:
+    compact_payloads = []
+    for payload in payloads:
+        sources = payload.get("sources", {})
+        compact_payloads.append(
+            {
+                "artist": payload.get("artist"),
+                "insight": payload.get("insight"),
+                "chart": sources.get("chart"),
+                "sentiment": sources.get("sentiment"),
+                "news": sources.get("news", [])[:3],
+                "report_excerpt": _truncate(payload.get("report", ""), 900),
+            }
+        )
+
+    return f"""
+你是 K-pop 市場分析助理。請只根據下列快取資料回答使用者的 K-pop 市場分析問題。
+請用繁體中文，最多 4 句，避免提及 API、程式、快取或內部流程。
+如果資料不足，請明確說資料不足並給保守觀察。
+
+使用者問題：
+{question}
+
+快取資料：
+{json.dumps(compact_payloads, ensure_ascii=False, indent=2)}
+""".strip()
+
+
+def _clean_small_analysis_answer(answer: str) -> str:
+    text = answer.strip()
+    text = re.sub(r"^```(?:\w+)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text).strip()
+    return _truncate(text, 900)
+
+
+def _fallback_small_analysis(question: str, payloads: list[dict[str, Any]]) -> str:
+    if len(payloads) > 1:
+        lines = ["目前可做保守比較："]
+        for payload in payloads:
+            artist = payload.get("artist", "該藝人")
+            insight = payload.get("insight") or {}
+            risk = insight.get("risk", "資料不足")
+            headline = insight.get("headline") or f"{artist} 目前資料量有限"
+            lines.append(f"{artist}：{headline}，風險 {risk}。")
+        return "\n".join(lines)
+
+    payload = payloads[0] if payloads else {}
+    artist = payload.get("artist", "該藝人")
+    insight = payload.get("insight") or {}
+    headline = insight.get("headline") or f"{artist} 目前資料量有限，建議持續觀察。"
+    risk = insight.get("risk", "資料不足")
+    opportunity = insight.get("opportunity", "等待更多榜單與留言資料")
+    return f"{headline}\n風險：{risk}\n機會：{opportunity}"
+
+
+def _kpop_scope_message() -> str:
+    supported = "、".join(SUPPORTED_ARTISTS)
+    return (
+        "我目前主要支援 K-pop 藝人、榜單、新聞與粉絲留言分析。\n"
+        f"可分析藝人：{supported}\n"
+        "你可以問：aespa 最近聲量如何？NCT 輿論風險高嗎？比較 IVE 和 BABYMONSTER。"
+    )
 
 
 def _unsupported_artist_message(artist: str) -> str:

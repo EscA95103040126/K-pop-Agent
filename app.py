@@ -13,9 +13,15 @@ from pathlib import Path
 from time import monotonic, time
 from urllib.parse import quote
 
+import requests
 from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 
-from src.agent import KpopAnalysisAgent, SUPPORTED_ARTISTS
+from src.agent import (
+    GEMINI_API_URL,
+    GEMINI_REQUEST_TIMEOUT_SECONDS,
+    KpopAnalysisAgent,
+    SUPPORTED_ARTISTS,
+)
 from src.config import settings
 from src.router import ARTIST_PATTERNS, route_message
 from src.tools.bugs_chart import fetch_bugs_weekly_chart
@@ -76,6 +82,19 @@ MEMBER_QUIZ_EMPTY_TEXT = (
     "目前還沒有認人測驗題目，請先補 data/play_zone/member_quiz.csv，"
     "並把圖片放到 data/play_zone/member_quiz_images/"
 )
+AI_CURATOR_ENTRY_TRIGGERS = {
+    "我的雷達",
+    "雷達",
+    "k-pop雷達",
+    "kpop雷達",
+    "ai策展人",
+    "aik-pop策展人",
+    "aikpop策展人",
+    "ai k-pop策展人",
+    "k-pop策展人",
+    "kpop策展人",
+    "策展人",
+}
 MEMBER_QUIZ_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 FAN_ATTRIBUTE_TYPES = {
     "group": {
@@ -295,6 +314,13 @@ def analyze() -> tuple[dict, int]:
             "report": "K-pop Play Zone",
             "flex": _build_play_zone_flex_contents(),
         }
+    elif _is_ai_curator_entry_request(message):
+        response = {
+            "report": "AI K-pop 策展人",
+            "flex": _build_ai_curator_entry_flex_contents(),
+        }
+    elif _is_ai_curator_preference_request(message):
+        response = _ai_curator_response(message)
     elif _is_bias_radar_quiz_request(message, user_id):
         response = _bias_radar_quiz_response(user_id, message)
     elif _is_fan_attribute_quiz_request(message):
@@ -539,6 +565,97 @@ def _build_play_zone_flex_contents() -> dict:
             },
         ],
     )
+
+
+def _build_ai_curator_entry_flex_contents() -> dict:
+    return _selection_page_flex_contents(
+        title="AI K-pop 策展人",
+        subtitle="我的雷達",
+        description="直接告訴我你的偏好，我會根據本命雷達、每日推薦與藝人資料幫你排入坑路線。",
+        accent_color="#6F5BA7",
+        items=[
+            {
+                "icon": "🌙",
+                "title": "清冷女團入坑",
+                "description": "適合喜歡清冷感、舞台視覺和概念感的人。",
+                "text": "我想入坑清冷感、舞台強的女團",
+            },
+            {
+                "icon": "🎤",
+                "title": "Vocal 取向推薦",
+                "description": "適合想先看唱功、現場和直拍的人。",
+                "text": "幫我推薦 vocal 強、現場穩的 K-pop",
+            },
+            {
+                "icon": "🔥",
+                "title": "霸氣舞台路線",
+                "description": "適合偏好 rap、dance 和舞台支配感的人。",
+                "text": "我喜歡霸氣舞台、rap 和 dance，推薦我入坑路線",
+            },
+            {
+                "icon": "💿",
+                "title": "自由描述偏好",
+                "description": "也可以直接輸入：我喜歡...，幫我推薦。",
+                "text": "我喜歡甜系、初戀感和好聽 MV，幫我推薦",
+            },
+        ],
+    )
+
+
+def _build_ai_curator_followup_flex_contents(artist: str | None = None) -> dict:
+    buttons = []
+    if artist:
+        buttons.append(_ai_curator_button(f"分析 {artist}", f"分析 {artist}", "primary"))
+    buttons.extend(
+        [
+            _ai_curator_button("本命雷達", "本命雷達測驗", "secondary"),
+            _ai_curator_button("抽 MV", "每日 MV", "secondary"),
+            _ai_curator_button("抽直拍", "每日直拍", "secondary"),
+        ]
+    )
+    return {
+        "type": "bubble",
+        "size": "kilo",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#6F5BA7",
+            "paddingAll": "14px",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "接下來想看？",
+                    "size": "md",
+                    "weight": "bold",
+                    "color": "#FFFFFF",
+                },
+            ],
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#F7F3FF",
+            "paddingAll": "14px",
+            "spacing": "sm",
+            "contents": buttons,
+        },
+    }
+
+
+def _ai_curator_button(label: str, text: str, style: str) -> dict:
+    button: dict[str, object] = {
+        "type": "button",
+        "style": style,
+        "height": "sm",
+        "action": {
+            "type": "message",
+            "label": label,
+            "text": text,
+        },
+    }
+    if style == "primary":
+        button["color"] = "#6F5BA7"
+    return button
 
 
 def _build_bias_radar_question_flex_contents(question_index: int) -> dict:
@@ -1292,6 +1409,52 @@ def _is_play_zone_request(message: str) -> bool:
     }
 
 
+def _is_ai_curator_entry_request(message: str) -> bool:
+    normalized = message.strip().casefold().replace(" ", "")
+    return normalized in AI_CURATOR_ENTRY_TRIGGERS
+
+
+def _is_ai_curator_preference_request(message: str) -> bool:
+    normalized = message.strip().casefold()
+    compact = normalized.replace(" ", "")
+    if not compact:
+        return False
+    if compact.startswith(("ai策展:", "策展:", "雷達:", "推薦:")):
+        return True
+    preference_phrases = (
+        "我想入坑",
+        "幫我推薦",
+        "推薦我",
+        "適合我",
+        "入坑路線",
+        "想追",
+        "想看",
+    )
+    preference_terms = (
+        "女團",
+        "男團",
+        "vocal",
+        "dance",
+        "rap",
+        "visual",
+        "all-rounder",
+        "清冷",
+        "甜系",
+        "霸氣",
+        "反差",
+        "冷感",
+        "舞台",
+        "直拍",
+        "mv",
+        "本命",
+        "初戀感",
+        "神性",
+    )
+    return any(phrase in compact for phrase in preference_phrases) and any(
+        term in compact for term in preference_terms
+    )
+
+
 def _is_fan_attribute_quiz_request(message: str) -> bool:
     normalized = message.strip()
     return normalized == "粉絲屬性測驗" or normalized.startswith("粉絲屬性測驗:")
@@ -1329,7 +1492,7 @@ def _is_member_quiz_answer(message: str) -> bool:
 
 def _is_play_zone_placeholder_request(message: str) -> bool:
     normalized = message.strip()
-    return normalized in {"粉絲屬性測驗", "神圖抽卡", "我的雷達"}
+    return normalized in {"粉絲屬性測驗", "神圖抽卡"}
 
 
 def _is_daily_kpop_category_request(message: str) -> bool:
@@ -1393,6 +1556,10 @@ def _reply_text_for_message(message: str) -> str:
         return _build_help_message().text
     if _is_play_zone_request(message):
         return "請在 LINE 中點選 K-pop Play Zone 卡片開始互動。"
+    if _is_ai_curator_entry_request(message):
+        return "請在 LINE 中點選我的雷達卡片，或直接輸入你的 K-pop 偏好。"
+    if _is_ai_curator_preference_request(message):
+        return _ai_curator_response(message)["report"]
     if _is_bias_radar_quiz_request(message):
         return _bias_radar_quiz_response("text-user", message)["report"]
     if _is_fan_attribute_quiz_request(message):
@@ -1436,6 +1603,305 @@ def _play_zone_placeholder_text(message: str) -> str:
         f"{feature}入口已建立。\n"
         "下一步會接題庫與本地 JSON 結果表，讓它變成真正可玩的互動流程。"
     )
+
+
+def _ai_curator_response(message: str) -> dict:
+    query = _clean_ai_curator_query(message)
+    context = _build_ai_curator_context(query)
+    fallback = _fallback_ai_curator_answer(query, context)
+    report = _generate_ai_curator_answer(query, context, fallback)
+    return {
+        "report": report,
+        "flex": _build_ai_curator_followup_flex_contents(context.get("primary_artist")),
+    }
+
+
+def _clean_ai_curator_query(message: str) -> str:
+    cleaned = message.strip()
+    for prefix in ("AI策展:", "ai策展:", "策展:", "雷達:", "推薦:"):
+        if cleaned.startswith(prefix):
+            return cleaned.removeprefix(prefix).strip() or "幫我推薦 K-pop 入坑路線"
+    return cleaned
+
+
+def _build_ai_curator_context(query: str) -> dict:
+    profile = _extract_ai_curator_preferences(query)
+    member_candidates = _rank_bias_radar_members_for_curator(profile)[:5]
+    daily_category = _ai_curator_daily_category(profile)
+    daily_items = _rank_daily_kpop_rows_for_curator(daily_category, profile)[:5]
+    artist_candidates = _ai_curator_artist_candidates(member_candidates, daily_items)[:5]
+    return {
+        "query": query,
+        "profile": profile,
+        "member_candidates": member_candidates,
+        "daily_category": daily_category,
+        "daily_items": daily_items,
+        "artist_summaries": _load_ai_curator_artist_summaries(artist_candidates[:3]),
+        "primary_artist": artist_candidates[0] if artist_candidates else None,
+    }
+
+
+def _extract_ai_curator_preferences(query: str) -> dict[str, set[str] | str | None]:
+    compact = unicodedata.normalize("NFKC", query).casefold().replace(" ", "")
+    gender: str | None = None
+    if "男團" in compact or "男偶像" in compact or "男idol" in compact:
+        gender = "male"
+    elif "女團" in compact or "女偶像" in compact or "女idol" in compact:
+        gender = "female"
+
+    tags = {
+        "appearance": _keyword_matches(
+            compact,
+            {
+                "貓咪": ("貓", "貓咪", "cat"),
+                "狗狗": ("狗", "狗狗", "dog"),
+                "小兔": ("兔", "兔子", "小兔", "rabbit"),
+                "狐狸": ("狐", "狐狸", "fox"),
+                "小鹿": ("鹿", "小鹿", "deer"),
+            },
+        ),
+        "position": _keyword_matches(
+            compact,
+            {
+                "Vocal": ("vocal", "唱功", "主唱", "高音", "現場"),
+                "Dance": ("dance", "舞蹈", "跳舞", "舞台", "直拍"),
+                "Rap": ("rap", "rapper", "饒舌"),
+                "Visual": ("visual", "門面", "顏值", "外貌", "神顏"),
+                "All-rounder": ("all-rounder", "allrounder", "全能", "全方位"),
+            },
+        ),
+        "vibe": _keyword_matches(
+            compact,
+            {
+                "冷感": ("冷感", "高冷"),
+                "甜系": ("甜", "甜系", "可愛"),
+                "霸氣": ("霸氣", "強勢", "帥"),
+                "反差": ("反差",),
+                "清冷": ("清冷", "仙", "乾淨"),
+            },
+        ),
+        "relationship": _keyword_matches(
+            compact,
+            {
+                "戀愛感": ("戀愛感", "女友", "男友"),
+                "神性": ("神性", "神", "仙"),
+                "朋友感": ("朋友感", "親切"),
+                "初戀感": ("初戀", "初戀感"),
+                "舞台支配感": ("舞台支配", "舞台支配感", "壓場", "舞台強"),
+            },
+        ),
+    }
+    return {"gender": gender, **tags}
+
+
+def _keyword_matches(compact_query: str, mapping: dict[str, tuple[str, ...]]) -> set[str]:
+    return {
+        label
+        for label, keywords in mapping.items()
+        if any(keyword.casefold().replace(" ", "") in compact_query for keyword in keywords)
+    }
+
+
+def _rank_bias_radar_members_for_curator(profile: dict) -> list[dict[str, str]]:
+    scored: list[tuple[int, dict[str, str]]] = []
+    for member in _load_bias_radar_members():
+        score = 0
+        gender = profile.get("gender")
+        if gender and member.get("gender_group") == gender:
+            score += 3
+        elif not gender:
+            score += 1
+        for field in ("appearance", "position", "vibe", "relationship"):
+            wanted = profile.get(field) or set()
+            matched = wanted & _split_bias_radar_tags(member.get(field, ""))
+            score += len(matched) * 2
+        if score > 0:
+            scored.append((score, member))
+    random.shuffle(scored)
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [member for _, member in scored]
+
+
+def _ai_curator_daily_category(profile: dict) -> str:
+    positions = profile.get("position") or set()
+    relationships = profile.get("relationship") or set()
+    if "Dance" in positions or "舞台支配感" in relationships:
+        return "直拍"
+    return "MV"
+
+
+def _rank_daily_kpop_rows_for_curator(category: str, profile: dict) -> list[dict[str, str]]:
+    rows = _load_daily_kpop_rows(category)
+    if not rows and category != "MV":
+        rows = _load_daily_kpop_rows("MV")
+    random.shuffle(rows)
+    gender = profile.get("gender")
+    if gender == "female":
+        rows.sort(key=lambda row: 0 if _daily_artist_looks_female(row.get("artist", "")) else 1)
+    elif gender == "male":
+        rows.sort(key=lambda row: 0 if not _daily_artist_looks_female(row.get("artist", "")) else 1)
+    return rows
+
+
+def _daily_artist_looks_female(artist: str) -> bool:
+    upper_artist = artist.upper()
+    female_markers = {
+        "AESPA",
+        "IVE",
+        "NMIXX",
+        "ILLIT",
+        "BABYMONSTER",
+        "BLACKPINK",
+        "TWICE",
+        "KISS OF LIFE",
+        "LE SSERAFIM",
+        "QWER",
+        "NEWJEANS",
+    }
+    return any(marker in upper_artist for marker in female_markers)
+
+
+def _ai_curator_artist_candidates(
+    member_candidates: list[dict[str, str]],
+    daily_items: list[dict[str, str]],
+) -> list[str]:
+    artists: list[str] = []
+    for member in member_candidates:
+        artists.append(member.get("artist", "").strip())
+    for item in daily_items:
+        artists.append(item.get("artist", "").strip())
+    return list(dict.fromkeys(artist for artist in artists if artist))
+
+
+def _load_ai_curator_artist_summaries(artists: list[str]) -> list[dict[str, str]]:
+    summaries = []
+    for artist in artists:
+        cache_path = settings.base_dir / "data" / "cache" / "artists" / f"{artist.lower()}.json"
+        if not cache_path.exists():
+            continue
+        try:
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        sentiment = payload.get("sources", {}).get("sentiment", {}).get("sentiment", {})
+        chart = payload.get("sources", {}).get("chart", {})
+        insight = payload.get("insight", {})
+        summaries.append(
+            {
+                "artist": artist,
+                "chart": (
+                    f"best_rank={chart.get('best_rank', 'NA')}, "
+                    f"trend={chart.get('trend', 'NA')}"
+                ),
+                "sentiment": (
+                    f"positive={sentiment.get('positive', 0)}, "
+                    f"neutral={sentiment.get('neutral', 0)}, "
+                    f"negative={sentiment.get('negative', 0)}"
+                ),
+                "insight": insight.get("headline", ""),
+            }
+        )
+    return summaries
+
+
+def _generate_ai_curator_answer(query: str, context: dict, fallback: str) -> str:
+    if getattr(settings, "use_gemini_mock", True):
+        return fallback
+    try:
+        prompt = _build_ai_curator_prompt(query, context)
+        response = requests.post(
+            GEMINI_API_URL.format(model=settings.gemini_model),
+            params={"key": settings.gemini_api_key},
+            json={
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [{"text": prompt}],
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": 0.45,
+                    "maxOutputTokens": 360,
+                },
+            },
+            timeout=GEMINI_REQUEST_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        data = response.json()
+        text = data["candidates"][0]["content"]["parts"][0].get("text", "")
+        return _clean_ai_curator_answer(text) or fallback
+    except Exception:
+        logger.warning("AI curator Gemini response failed; using fallback.")
+        return fallback
+
+
+def _build_ai_curator_prompt(query: str, context: dict) -> str:
+    member_lines = [
+        (
+            f"- {member.get('artist')} {member.get('member')}: "
+            f"position={member.get('position')}; vibe={member.get('vibe')}; "
+            f"relationship={member.get('relationship')}"
+        )
+        for member in context["member_candidates"][:5]
+    ]
+    daily_lines = [
+        f"- {item.get('artist')} - {item.get('title')} ({context['daily_category']}): {item.get('url')}"
+        for item in context["daily_items"][:5]
+    ]
+    artist_lines = [
+        f"- {item['artist']}: {item['chart']}; {item['sentiment']}; insight={item['insight']}"
+        for item in context["artist_summaries"]
+    ]
+    return f"""你是 K-pop 策展人，請用繁體中文根據使用者偏好做自然語言推薦。
+只能根據下方候選資料回答，不要捏造不存在的資料。
+回答 5 行以內，口吻像 LINE Bot，清楚給 2-3 個推薦與下一步。
+
+使用者偏好：
+{query}
+
+本命候選：
+{chr(10).join(member_lines) or "- 無"}
+
+推薦歌曲/直拍候選：
+{chr(10).join(daily_lines) or "- 無"}
+
+藝人分析摘要：
+{chr(10).join(artist_lines) or "- 無"}
+"""
+
+
+def _clean_ai_curator_answer(text: str) -> str:
+    cleaned = text.strip()
+    cleaned = re.sub(r"^```(?:text)?", "", cleaned).strip()
+    cleaned = re.sub(r"```$", "", cleaned).strip()
+    return fit_line_text(cleaned, limit=900)
+
+
+def _fallback_ai_curator_answer(query: str, context: dict) -> str:
+    member_candidates = context.get("member_candidates", [])
+    daily_items = context.get("daily_items", [])
+    lines = [
+        "🧭 AI K-pop 策展人",
+        f"根據你說的「{query}」，我會這樣排：",
+    ]
+    if member_candidates:
+        for index, member in enumerate(member_candidates[:3], start=1):
+            lines.append(
+                f"{index}. {member['artist']} {member['member']}："
+                f"{member.get('vibe', '風格鮮明')}，適合先看本命雷達。"
+            )
+    elif daily_items:
+        for index, item in enumerate(daily_items[:3], start=1):
+            lines.append(f"{index}. {item['artist']}《{item['title']}》：適合先聽 MV 入坑。")
+    else:
+        lines.append("目前資料還不夠，建議先從本命雷達測驗或每日一首開始。")
+
+    if daily_items:
+        item = daily_items[0]
+        lines.append(f"今日入口：先看 {item['artist']}《{item['title']}》")
+        if item.get("url"):
+            lines.append(item["url"])
+    return fit_line_text("\n".join(lines), limit=900)
 
 
 def _photo_card_placeholder_text() -> str:
@@ -2339,6 +2805,23 @@ if line_handler is not None and MessageEvent is not None and TextMessageContent 
                     alt_text="K-pop Play Zone",
                 )
                 fallback_text = "請選擇：本命雷達測驗、粉絲屬性測驗、認人測驗、神圖抽卡"
+            elif _is_ai_curator_entry_request(user_text):
+                reply_message = _build_line_flex_message(
+                    _build_ai_curator_entry_flex_contents(),
+                    alt_text="AI K-pop 策展人",
+                )
+                fallback_text = "請直接輸入你的 K-pop 偏好，例如：我想入坑清冷感、舞台強的女團。"
+            elif _is_ai_curator_preference_request(user_text):
+                response = _ai_curator_response(user_text)
+                fallback_text = fit_line_text(response["report"])
+                reply_message = TextMessage(text=fallback_text)
+                reply_messages = [
+                    reply_message,
+                    _build_line_flex_message(
+                        response["flex"],
+                        alt_text="AI K-pop 策展人",
+                    ),
+                ]
             elif _is_bias_radar_quiz_request(user_text, line_user_id):
                 response = _bias_radar_quiz_response(line_user_id, user_text)
                 reply_message = _build_line_flex_message(

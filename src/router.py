@@ -1,22 +1,23 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 
 from src.utils.text_cleaner import normalize_artist
 
 
 ARTIST_PATTERNS = {
-    "aespa": re.compile(r"\b(aespa|에스파)\b", re.IGNORECASE),
-    "IVE": re.compile(r"\b(ive|아이브)\b", re.IGNORECASE),
-    "BABYMONSTER": re.compile(r"\b(babymonster|baby monster|베이비몬스터)\b", re.IGNORECASE),
-    "NMIXX": re.compile(r"\b(nmixx|엔믹스)\b", re.IGNORECASE),
-    "ILLIT": re.compile(r"\b(illit|아일릿)\b", re.IGNORECASE),
-    "NCT": re.compile(r"\b(nct|엔시티)\b", re.IGNORECASE),
-    "ZEROBASEONE": re.compile(r"\b(zerobaseone|zero base one|zb1|제로베이스원)\b", re.IGNORECASE),
-    "TXT": re.compile(r"\b(txt|투모로우바이투게더|tomorrow x together)\b", re.IGNORECASE),
-    "ENHYPEN": re.compile(r"\b(enhypen|엔하이픈)\b", re.IGNORECASE),
-    "BOYNEXTDOOR": re.compile(r"\b(boynextdoor|boy next door|보이넥스트도어)\b", re.IGNORECASE),
+    "aespa": re.compile(r"(aespa|에스파)", re.IGNORECASE),
+    "IVE": re.compile(r"(ive|아이브)", re.IGNORECASE),
+    "BABYMONSTER": re.compile(r"(babymonster|baby\s*monster|베이비몬스터)", re.IGNORECASE),
+    "NMIXX": re.compile(r"(nmixx|엔믹스)", re.IGNORECASE),
+    "ILLIT": re.compile(r"(illit|아일릿)", re.IGNORECASE),
+    "NCT": re.compile(r"(nct|엔시티)", re.IGNORECASE),
+    "ZEROBASEONE": re.compile(r"(zerobaseone|zero\s*base\s*one|zb1|제로베이스원)", re.IGNORECASE),
+    "TXT": re.compile(r"(txt|투모로우바이투게더|tomorrow\s*x\s*together)", re.IGNORECASE),
+    "ENHYPEN": re.compile(r"(enhypen|엔하이픈)", re.IGNORECASE),
+    "BOYNEXTDOOR": re.compile(r"(boynextdoor|boy\s*next\s*door|보이넥스트도어)", re.IGNORECASE),
 }
 WEEKLY_CHART_KEYWORDS = ("本週榜單", "本週 K-pop 榜單", "本週Kpop榜單", "榜單", "chart")
 
@@ -30,7 +31,8 @@ class Intent:
 
 
 def route_message(message: str) -> Intent:
-    if _is_weekly_chart_request(message):
+    normalized = _normalize_message(message)
+    if _is_weekly_chart_request(normalized):
         return Intent(
             name="weekly_chart",
             artist="",
@@ -38,13 +40,13 @@ def route_message(message: str) -> Intent:
             raw_text=message,
         )
 
-    artist = _extract_artist(message)
-    period_months = _extract_period_months(message)
+    artist = _extract_artist(normalized)
+    period_months = _extract_period_months(normalized)
 
     intent_name = "artist_analysis"
-    if any(keyword in message for keyword in ("反應", "輿論", "風向", "評價", "新聞")):
+    if any(keyword in normalized for keyword in ("反應", "輿論", "與論", "風向", "評價", "新聞")):
         intent_name = "artist_sentiment_context"
-    if any(keyword in message for keyword in ("榜", "排名", "表現", "趨勢")):
+    if any(keyword in normalized for keyword in ("榜", "排名", "表現", "趨勢")):
         intent_name = "artist_market_analysis"
 
     return Intent(
@@ -86,3 +88,7 @@ def _is_weekly_chart_request(message: str) -> bool:
 
 def _normalize_chart_query(message: str) -> str:
     return re.sub(r"[\s\-_]+", "", message.casefold())
+
+
+def _normalize_message(message: str) -> str:
+    return unicodedata.normalize("NFKC", message)

@@ -10,7 +10,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-RICH_MENU_SIZE = (2500, 843)
+RICH_MENU_SIZE = (2500, 1686)
 BACKGROUND_COLOR = "#FAF7F4"
 DIVIDER_COLOR = "#E8D5C4"
 TEXT_COLOR = "#8B5E52"
@@ -55,59 +55,75 @@ def _line_access_token() -> str:
 
 def _rich_menu_payload() -> dict:
     button_width = RICH_MENU_SIZE[0] // 3
+    button_height = RICH_MENU_SIZE[1] // 2
+    items = [
+        (0, 0, "選擇藝人"),
+        (1, 0, "本週 K-pop 榜單"),
+        (2, 0, "互動專區"),
+        (0, 1, "每日一首"),
+        (1, 1, "我的雷達"),
+        (2, 1, "使用說明"),
+    ]
     return {
         "size": {"width": RICH_MENU_SIZE[0], "height": RICH_MENU_SIZE[1]},
         "selected": True,
         "name": "K-pop Agent Rich Menu",
         "chatBarText": "K-pop Agent",
         "areas": [
-            {
-                "bounds": {"x": 0, "y": 0, "width": button_width, "height": RICH_MENU_SIZE[1]},
-                "action": {"type": "message", "text": "選擇藝人"},
-            },
-            {
-                "bounds": {
-                    "x": button_width,
-                    "y": 0,
-                    "width": button_width,
-                    "height": RICH_MENU_SIZE[1],
-                },
-                "action": {"type": "message", "text": "本週 K-pop 榜單"},
-            },
-            {
-                "bounds": {
-                    "x": button_width * 2,
-                    "y": 0,
-                    "width": RICH_MENU_SIZE[0] - button_width * 2,
-                    "height": RICH_MENU_SIZE[1],
-                },
-                "action": {"type": "message", "text": "使用說明"},
-            },
+            _rich_menu_area(column, row, text, button_width, button_height)
+            for column, row, text in items
         ],
+    }
+
+
+def _rich_menu_area(
+    column: int,
+    row: int,
+    text: str,
+    button_width: int,
+    button_height: int,
+) -> dict:
+    x = button_width * column
+    y = button_height * row
+    width = RICH_MENU_SIZE[0] - x if column == 2 else button_width
+    height = RICH_MENU_SIZE[1] - y if row == 1 else button_height
+    return {
+        "bounds": {"x": x, "y": y, "width": width, "height": height},
+        "action": {"type": "message", "text": text},
     }
 
 
 def _create_rich_menu_image() -> Path:
     image = Image.new("RGB", RICH_MENU_SIZE, BACKGROUND_COLOR)
     draw = ImageDraw.Draw(image)
-    emoji_font = _load_emoji_font(80)
-    title_font = _load_text_font(70)
+    emoji_font = _load_emoji_font(74)
+    title_font = _load_text_font(58)
     labels = [
         ("🔍", "分析藝人"),
         ("📊", "本週榜單"),
+        ("🎮", "互動專區"),
+        ("🎧", "每日一首"),
+        ("🧭", "我的雷達"),
         ("ℹ️", "使用說明"),
     ]
     button_width = RICH_MENU_SIZE[0] // 3
+    button_height = RICH_MENU_SIZE[1] // 2
 
     for index, (icon, title) in enumerate(labels):
-        x0 = button_width * index
-        x1 = RICH_MENU_SIZE[0] if index == 2 else button_width * (index + 1)
+        column = index % 3
+        row = index // 3
+        x0 = button_width * column
+        y0 = button_height * row
+        x1 = RICH_MENU_SIZE[0] if column == 2 else button_width * (column + 1)
+        y1 = RICH_MENU_SIZE[1] if row == 1 else button_height * (row + 1)
         center_x = (x0 + x1) // 2
-        if index > 0:
-            draw.line((x0, 110, x0, RICH_MENU_SIZE[1] - 110), fill=DIVIDER_COLOR, width=5)
+        if column > 0:
+            draw.line((x0, y0 + 90, x0, y1 - 90), fill=DIVIDER_COLOR, width=5)
+        if row > 0:
+            draw.line((x0 + 90, y0, x1 - 90, y0), fill=DIVIDER_COLOR, width=5)
 
-        _draw_centered_text(draw, icon, center_x, 230, emoji_font)
-        _draw_centered_text(draw, title, center_x, 430, title_font)
+        _draw_centered_text(draw, icon, center_x, y0 + 220, emoji_font)
+        _draw_centered_text(draw, title, center_x, y0 + 420, title_font)
 
     output_path = Path(tempfile.gettempdir()) / "kpop_agent_rich_menu.png"
     image.save(output_path, "PNG")

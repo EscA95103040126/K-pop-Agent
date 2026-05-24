@@ -13,8 +13,9 @@ def test_chart_db_returns_artist_trend(tmp_path: Path) -> None:
     result = repo.get_artist_trend("aespa", weeks=12)
 
     assert result["artist"] == "aespa"
-    assert result["best_rank"] == 1
-    assert result["weeks_on_chart"] == 12
+    assert result["best_rank"] == min(item["rank"] for item in result["history"])
+    assert result["weeks_on_chart"] == len(result["history"])
+    assert result["history"]
 
 
 def test_chart_db_insert_chart_rows_is_idempotent(tmp_path: Path) -> None:
@@ -123,3 +124,41 @@ def test_chart_db_returns_latest_weekly_chart(tmp_path: Path) -> None:
 
     assert result["chart_date"] == "2026-05-11"
     assert result["items"][0]["title"] == "REDRED"
+
+
+def test_chart_db_skips_incomplete_latest_weekly_chart(tmp_path: Path) -> None:
+    db_path = tmp_path / "chart_history.db"
+    repo = ChartHistoryRepository(db_path=db_path)
+    complete_rows = [
+        {
+            "fetch_date": "2026-05-18",
+            "chart_date": "2026-05-11",
+            "source": "bugs",
+            "chart_type": "weekly",
+            "rank": rank,
+            "title": f"Song {rank}",
+            "artist": f"Artist {rank}",
+            "album": "Album",
+            "change_rank": 0,
+        }
+        for rank in range(1, 11)
+    ]
+    incomplete_rows = [
+        {
+            "fetch_date": "2026-05-25",
+            "chart_date": "2026-05-18",
+            "source": "bugs",
+            "chart_type": "weekly",
+            "rank": 1,
+            "title": "Only One",
+            "artist": "aespa",
+            "album": "Album",
+            "change_rank": 1,
+        }
+    ]
+    repo.insert_chart_rows(complete_rows + incomplete_rows)
+
+    result = repo.get_latest_weekly_chart(limit=10)
+
+    assert result["chart_date"] == "2026-05-11"
+    assert len(result["items"]) == 10

@@ -1,37 +1,101 @@
 fetch_date,chart_date,source,chart_type,rank,title,artist,album,change_rank
-2026-03-02,2026-03-02,bugs,weekly,8,Drama,aespa,Drama,0
-2026-03-09,2026-03-09,bugs,weekly,7,Drama,aespa,Drama,1
-2026-03-16,2026-03-16,bugs,weekly,6,Drama,aespa,Drama,1
-2026-03-23,2026-03-23,bugs,weekly,5,Supernova,aespa,Armageddon,1
-2026-03-30,2026-03-30,bugs,weekly,4,Supernova,aespa,Armageddon,1
-2026-04-06,2026-04-06,bugs,weekly,3,Supernova,aespa,Armageddon,1
-2026-04-13,2026-04-13,bugs,weekly,2,Supernova,aespa,Armageddon,1
-2026-04-20,2026-04-20,bugs,weekly,2,Supernova,aespa,Armageddon,0
-2026-04-27,2026-04-27,bugs,weekly,1,Supernova,aespa,Armageddon,1
-2026-05-04,2026-05-04,bugs,weekly,1,Supernova,aespa,Armageddon,0
-2026-05-11,2026-05-11,bugs,weekly,2,Supernova,aespa,Armageddon,-1
-2026-05-18,2026-05-18,bugs,weekly,1,Supernova,aespa,Armageddon,1
-2026-03-02,2026-03-02,bugs,weekly,9,HEYA,IVE,IVE SWITCH,0
-2026-03-09,2026-03-09,bugs,weekly,8,HEYA,IVE,IVE SWITCH,1
-2026-03-16,2026-03-16,bugs,weekly,7,HEYA,IVE,IVE SWITCH,1
-2026-03-23,2026-03-23,bugs,weekly,7,HEYA,IVE,IVE SWITCH,0
-2026-03-30,2026-03-30,bugs,weekly,6,HEYA,IVE,IVE SWITCH,1
-2026-04-06,2026-04-06,bugs,weekly,5,HEYA,IVE,IVE SWITCH,1
-2026-04-13,2026-04-13,bugs,weekly,4,Accendio,IVE,IVE SWITCH,1
-2026-04-20,2026-04-20,bugs,weekly,4,Accendio,IVE,IVE SWITCH,0
-2026-04-27,2026-04-27,bugs,weekly,5,Accendio,IVE,IVE SWITCH,-1
-2026-05-04,2026-05-04,bugs,weekly,6,Accendio,IVE,IVE SWITCH,-1
-2026-05-11,2026-05-11,bugs,weekly,5,Accendio,IVE,IVE SWITCH,1
-2026-05-18,2026-05-18,bugs,weekly,4,Accendio,IVE,IVE SWITCH,1
-2026-03-02,2026-03-02,bugs,weekly,3,How Sweet,NewJeans,How Sweet,0
-2026-03-09,2026-03-09,bugs,weekly,3,How Sweet,NewJeans,How Sweet,0
-2026-03-16,2026-03-16,bugs,weekly,4,How Sweet,NewJeans,How Sweet,-1
-2026-03-23,2026-03-23,bugs,weekly,4,How Sweet,NewJeans,How Sweet,0
-2026-03-30,2026-03-30,bugs,weekly,5,How Sweet,NewJeans,How Sweet,-1
-2026-04-06,2026-04-06,bugs,weekly,5,How Sweet,NewJeans,How Sweet,0
-2026-04-13,2026-04-13,bugs,weekly,6,How Sweet,NewJeans,How Sweet,-1
-2026-04-20,2026-04-20,bugs,weekly,6,How Sweet,NewJeans,How Sweet,0
-2026-04-27,2026-04-27,bugs,weekly,7,How Sweet,NewJeans,How Sweet,-1
-2026-05-04,2026-05-04,bugs,weekly,7,How Sweet,NewJeans,How Sweet,0
-2026-05-11,2026-05-11,bugs,weekly,8,How Sweet,NewJeans,How Sweet,-1
-2026-05-18,2026-05-18,bugs,weekly,7,How Sweet,NewJeans,How Sweet,1
+2026-05-18,2026-05-11,bugs,weekly,1,REDRED,"CORTIS (코르티스)",GREENGREEN,2
+2026-05-18,2026-05-11,bugs,weekly,2,"It′s Me","아일릿(ILLIT)",MAMIHLAPINATAPAI,2
+2026-05-18,2026-05-11,bugs,weekly,3,"소문의 낙원","AKMU(악뮤)","개화",-2
+2026-05-18,2026-05-11,bugs,weekly,4,"Heavy Serenade",NMIXX,"Heavy Serenade",0
+2026-05-18,2026-05-11,bugs,weekly,5,"기쁨, 슬픔, 아름다운 마음","AKMU(악뮤)","개화",-3
+2026-05-18,2026-05-11,bugs,weekly,6,"별이 될게","황치열","별이 될게",-1
+2026-05-18,2026-05-11,bugs,weekly,7,"WDA (Whole Different Animal) (Feat. G-DRAGON)",aespa,"WDA (Whole Different Animal) (Feat. G-DRAGON)",0
+2026-05-18,2026-05-11,bugs,weekly,8,"사랑하게 될 거야","한로로","이상비행",-2
+2026-05-18,2026-05-11,bugs,weekly,9,"캐치 캐치","YENA (최예나)","LOVE CATCHER",1
+2026-05-18,2026-05-11,bugs,weekly,10,RUDE!,"Hearts2Hearts (하츠투하츠)",RUDE!,-2
+2026-05-18,2026-05-11,bugs,weekly,11,0+0,"한로로","자몽살구클럽",-4
+2026-05-18,2026-05-11,bugs,weekly,12,Popcorn,"도경수(D.O.)","성장 - THE 3RD MINI ALBUM",-3
+2026-05-18,2026-05-11,bugs,weekly,13,"404 (New Era)","KiiiKiii (키키)","Delulu Pack",-2
+2026-05-18,2026-05-11,bugs,weekly,14,Drowning,WOODZ,OO-LI,-1
+2026-05-18,2026-05-11,bugs,weekly,15,"BANG BANG","IVE (아이브)",REVIVE+,-3
+2026-05-18,2026-05-11,bugs,weekly,16,"Good Goodbye","화사 (HWASA)","Good Goodbye",-2
+2026-05-18,2026-05-11,bugs,weekly,17,"Who is she","KISS OF LIFE","Who is she",1
+2026-05-18,2026-05-11,bugs,weekly,18,"너에게 닿기를",10CM,"너에게 닿기를",-2
+2026-05-18,2026-05-11,bugs,weekly,19,"멸종위기사랑","이찬혁",EROS,-4
+2026-05-18,2026-05-11,bugs,weekly,20,"WAY 2 U","FLARE U (플레어 유)","YOUTH ERROR",0
+2026-05-18,2026-05-11,bugs,weekly,21,"타임캡슐","다비치","타임캡슐",-4
+2026-05-18,2026-05-11,bugs,weekly,22,"THAT’S A NO NO","ITZY (있지)","IT'z ME",-2
+2026-05-18,2026-05-11,bugs,weekly,23,"뛰어(JUMP)",BLACKPINK,"뛰어(JUMP)",-2
+2026-05-18,2026-05-11,bugs,weekly,24,"toxic till the end","로제(ROSÉ)",rosie,-5
+2026-05-18,2026-05-11,bugs,weekly,25,"Blue Valentine",NMIXX,"Blue Valentine",2
+2026-05-18,2026-05-11,bugs,weekly,26,BLACKHOLE,"IVE (아이브)",REVIVE+,-4
+2026-05-18,2026-05-11,bugs,weekly,27,"입춘","한로로","입춘",-3
+2026-05-18,2026-05-11,bugs,weekly,28,Golden,"HUNTR/X, 아티스트 전체보기","KPop Demon Hunters (Soundtrack from the Netflix Film)",-3
+2026-05-18,2026-05-11,bugs,weekly,29,"like JENNIE","제니 (JENNIE)",Ruby,1
+2026-05-18,2026-05-11,bugs,weekly,30,Whiplash,aespa,"Whiplash - The 5th Mini Album",6
+2026-05-18,2026-05-11,bugs,weekly,31,"어떻게 이별까지 사랑하겠어, 널 사랑하는 거지","AKMU(악뮤)","항해",-2
+2026-05-18,2026-05-11,bugs,weekly,32,"한 페이지가 될 수 있게","DAY6 (데이식스)","The Book of Us : Gravity",0
+2026-05-18,2026-05-11,bugs,weekly,33,"청춘만화","이무진","만화 (滿花)",2
+2026-05-18,2026-05-11,bugs,weekly,34,SWIM,"방탄소년단",ARIRANG,-6
+2026-05-18,2026-05-11,bugs,weekly,35,"웃기는 소리 같겠지만","황치열","ALL OF ME",-9
+2026-05-18,2026-05-11,bugs,weekly,36,"봄 색깔","AKMU(악뮤)","개화",-13
+2026-05-18,2026-05-11,bugs,weekly,37,"그대 작은 나의 세상이 되어","카더가든","부재",-4
+2026-05-18,2026-05-11,bugs,weekly,38,"내게 사랑이 뭐냐고 물어본다면","로이킴","내게 사랑이 뭐냐고 물어본다면",0
+2026-05-18,2026-05-11,bugs,weekly,39,"So Cute","화사 (HWASA)","So Cute",5
+2026-05-18,2026-05-11,bugs,weekly,40,"NOT CUTE ANYMORE","아일릿(ILLIT)","NOT CUTE ANYMORE",-6
+2026-05-18,2026-05-11,bugs,weekly,41,"봄 내음보다 너를","김나영","봄 내음보다 너를",5
+2026-05-18,2026-05-11,bugs,weekly,42,"하루에 하루만 더 (Stick With You)","투모로우바이투게더","7TH YEAR: 가시덤불에 잠시 바람이 멈췄을 때",-11
+2026-05-18,2026-05-11,bugs,weekly,43,HAPPY,"DAY6 (데이식스)",Fourever,-6
+2026-05-18,2026-05-11,bugs,weekly,44,"사랑은 봄비처럼... 이별은 겨울비처럼","임현정","A Year Out..In The Island",-2
+2026-05-18,2026-05-11,bugs,weekly,45,OVERDRIVE,"TWS (투어스)","TWS 4th Mini Album ‘play hard’",-4
+2026-05-18,2026-05-11,bugs,weekly,46,"모르시나요(PROD.로코베리)","조째즈","모르시나요",-1
+2026-05-18,2026-05-11,bugs,weekly,47,"그대가 내 안에 박혔다","황치열","그대가 내 안에 박혔다",38
+2026-05-18,2026-05-11,bugs,weekly,48,Flashback,"엔플라잉(N.Flying)","Man on the Moon",-5
+2026-05-18,2026-05-11,bugs,weekly,49,"SPAGHETTI (feat. j-hope of BTS)","LE SSERAFIM (르세라핌), 아티스트 전체보기",SPAGHETTI,-2
+2026-05-18,2026-05-11,bugs,weekly,50,"소나기","이클립스 (ECLIPSE)","선재 업고 튀어 OST Part 1",-1
+2026-05-18,2026-05-11,bugs,weekly,51,"Welcome to the Show","DAY6 (데이식스)",Fourever,1
+2026-05-18,2026-05-11,bugs,weekly,52,"첫 만남은 계획대로 되지 않아","TWS (투어스)","TWS 1st Mini Album ‘Sparkling Blue’",-2
+2026-05-18,2026-05-11,bugs,weekly,53,"모든 날, 모든 순간 (Every day, Every Moment)","폴킴(Paul Kim)","'키스 먼저 할까요?' OST Part.3",-5
+2026-05-18,2026-05-11,bugs,weekly,54,FAMOUS,"ALLDAY PROJECT",FAMOUS,-3
+2026-05-18,2026-05-11,bugs,weekly,55,"에피소드","이무진","에피소드",0
+2026-05-18,2026-05-11,bugs,weekly,56,"나는 반딧불","황가람","나는 반딧불",-3
+2026-05-18,2026-05-11,bugs,weekly,57,"벌레를 내고","AKMU(악뮤)","개화",-18
+2026-05-18,2026-05-11,bugs,weekly,58,"Hype Boy",NewJeans,"NewJeans 1st EP 'New Jeans'",6
+2026-05-18,2026-05-11,bugs,weekly,59,"천상연","이창섭","천상연 (웹툰 '선녀외전' X 이창섭 (LEE CHANGSUB))",3
+2026-05-18,2026-05-11,bugs,weekly,60,Supernova,aespa,"Armageddon - The 1st Album",7
+2026-05-18,2026-05-11,bugs,weekly,61,GO,BLACKPINK,DEADLINE,-4
+2026-05-18,2026-05-11,bugs,weekly,62,"고민중독",QWER,"1st Mini Album 'MANITO'",-1
+2026-05-18,2026-05-11,bugs,weekly,63,"REBEL HEART","IVE (아이브)","IVE EMPATHY",-7
+2026-05-18,2026-05-11,bugs,weekly,64,APT.,"로제(ROSÉ), 아티스트 전체보기",APT.,-10
+2026-05-18,2026-05-11,bugs,weekly,65,FOCUS,"Hearts2Hearts (하츠투하츠)","FOCUS - The 1st Mini Album",-7
+2026-05-18,2026-05-11,bugs,weekly,66,"햇빛 bless you","AKMU(악뮤)","개화",-26
+2026-05-18,2026-05-11,bugs,weekly,67,"I AM","IVE (아이브)","I've IVE",-7
+2026-05-18,2026-05-11,bugs,weekly,68,"예뻤어","DAY6 (데이식스)","Every DAY6 February",4
+2026-05-18,2026-05-11,bugs,weekly,69,"그대만 있다면 (여름날 우리 X 너드커넥션 (Nerd Connection))","너드커넥션(Nerd Connection)","그대만 있다면 (여름날 우리 X 너드커넥션 (Nerd Connection))",5
+2026-05-18,2026-05-11,bugs,weekly,70,"Body to Body","방탄소년단",ARIRANG,-11
+2026-05-18,2026-05-11,bugs,weekly,71,Magnetic,"아일릿(ILLIT)","SUPER REAL ME",-5
+2026-05-18,2026-05-11,bugs,weekly,72,"사랑인가 봐","멜로망스(MeloMance)","사랑인가 봐 (사내맞선 OST 스페셜 트랙)",-3
+2026-05-18,2026-05-11,bugs,weekly,73,"ONE MORE TIME","ALLDAY PROJECT","ALLDAY PROJECT",-8
+2026-05-18,2026-05-11,bugs,weekly,74,"달리 표현할 수 없어요","로이킴","달리 표현할 수 없어요",-3
+2026-05-18,2026-05-11,bugs,weekly,75,"Soda Pop","Saja Boys, 아티스트 전체보기","KPop Demon Hunters (Soundtrack from the Netflix Film)",-12
+2026-05-18,2026-05-11,bugs,weekly,76,"주저하는 연인들을 위해","잔나비","전설",-3
+2026-05-18,2026-05-11,bugs,weekly,77,Ditto,NewJeans,"NewJeans 'OMG'",1
+2026-05-18,2026-05-11,bugs,weekly,78,"HOME SWEET HOME (feat. 태양, 대성)",G-DRAGON,"HOME SWEET HOME (feat. 태양, 대성)",-1
+2026-05-18,2026-05-11,bugs,weekly,79,STYLE,"Hearts2Hearts (하츠투하츠)",STYLE,-4
+2026-05-18,2026-05-11,bugs,weekly,80,XOXZ,"IVE (아이브)","IVE SECRET",-10
+2026-05-18,2026-05-11,bugs,weekly,81,Congratulations,"DAY6 (데이식스)","The Day",-5
+2026-05-18,2026-05-11,bugs,weekly,82,"Die With A Smile","Lady Gaga(레이디 가가), 아티스트 전체보기","Die With A Smile",-14
+2026-05-18,2026-05-11,bugs,weekly,83,"춤 (CHOOM)",BABYMONSTER,"춤 (CHOOM)",16
+2026-05-18,2026-05-11,bugs,weekly,84,"I DO ME","KiiiKiii (키키)","UNCUT GEM",-5
+2026-05-18,2026-05-11,bugs,weekly,85,HOT,"LE SSERAFIM (르세라핌)",HOT,-1
+2026-05-18,2026-05-11,bugs,weekly,86,"오늘만 I LOVE YOU",BOYNEXTDOOR,"오늘만 I LOVE YOU",-3
+2026-05-18,2026-05-11,bugs,weekly,87,Flower,"오반(OVAN)","교회오빠",-7
+2026-05-18,2026-05-11,bugs,weekly,88,"시작의 아이 ❍","박다혜, 아티스트 전체보기","시작의 아이 ❍ ハジマリのコ Starting With You : ♡",-7
+2026-05-18,2026-05-11,bugs,weekly,89,"Love me or Leave me","DAY6 (데이식스)","The Book of Us : The Demon",-2
+2026-05-18,2026-05-11,bugs,weekly,90,Mantra,"제니 (JENNIE)",Mantra,2
+2026-05-18,2026-05-11,bugs,weekly,91,"나는 아픈 건 딱 질색이니까","i-dle (아이들)",2,-5
+2026-05-18,2026-05-11,bugs,weekly,92,"다시 만난 오늘","TWS (투어스)","다시 만난 오늘",-2
+2026-05-18,2026-05-11,bugs,weekly,93,"Love wins all","아이유(IU)","The Winning",0
+2026-05-18,2026-05-11,bugs,weekly,94,"KISS KISS KISS (Feat. 선우 (THE BOYZ)) (Prod. by Hukky Shibaseki)","NOWIMYOUNG (나우아임영), 아티스트 전체보기","쇼미더머니 12 Episode 2",0
+2026-05-18,2026-05-11,bugs,weekly,95,"사랑을 하다가","황치열","사랑을 하다가",-13
+2026-05-18,2026-05-11,bugs,weekly,96,"TICK TOCK (Feat. ZICO) (Prod. by ZICO, Crush)","김하온(HAON), 아티스트 전체보기","쇼미더머니 12 Episode 1",-5
+2026-05-18,2026-05-11,bugs,weekly,97,2.0,"방탄소년단",ARIRANG,-8
+2026-05-18,2026-05-11,bugs,weekly,98,"잘하고 있어","황치열","ALL OF ME",-10
+2026-05-18,2026-05-11,bugs,weekly,99,ATTITUDE,"IVE (아이브)","IVE EMPATHY",-2
+2026-05-18,2026-05-11,bugs,weekly,100,"널 따라가 (You, You)","TWS (투어스)","TWS 5th Mini Album 'NO TRAGEDY'",-2

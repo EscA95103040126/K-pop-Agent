@@ -480,6 +480,49 @@ def test_daily_kpop_entry_still_returns_flex() -> None:
     assert payload["flex"]["header"]["contents"][1]["text"] == "每日一首 K-pop"
 
 
+def test_my_radar_returns_ai_curator_entry_flex() -> None:
+    client = app.test_client()
+
+    response = client.post("/analyze", json={"message": "我的雷達"})
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["report"] == "AI K-pop 策展人"
+    assert payload["flex"]["header"]["contents"][1]["text"] == "AI K-pop 策展人"
+    assert payload["flex"]["body"]["contents"][1]["contents"][1]["contents"][0]["text"] == "清冷女團入坑"
+
+
+def test_ai_curator_preference_uses_local_fallback(monkeypatch) -> None:
+    monkeypatch.setattr(
+        app_module,
+        "settings",
+        SimpleNamespace(
+            base_dir=Path(app_module.__file__).resolve().parent,
+            use_gemini_mock=True,
+            gemini_api_key=None,
+            gemini_model="gemini-3.5-flash",
+        ),
+    )
+    client = app.test_client()
+
+    response = client.post(
+        "/analyze",
+        json={"message": "我想入坑清冷感、舞台強的女團"},
+    )
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["report"].startswith("🧭 AI K-pop 策展人")
+    assert "清冷感" in payload["report"]
+    assert payload["flex"]["header"]["contents"][0]["text"] == "接下來想看？"
+    button_texts = [
+        item["action"]["text"]
+        for item in payload["flex"]["body"]["contents"]
+    ]
+    assert "本命雷達測驗" in button_texts
+    assert "每日 MV" in button_texts
+
+
 def test_member_quiz_does_not_affect_photo_card_or_fan_attribute(monkeypatch, tmp_path: Path) -> None:
     _use_photo_card_csv(
         monkeypatch,

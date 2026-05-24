@@ -167,10 +167,25 @@ class ChartHistoryRepository:
                 SELECT chart_date
                 FROM chart_history
                 WHERE source = 'bugs' AND chart_type = 'weekly'
+                GROUP BY chart_date
+                HAVING COUNT(*) >= ?
                 ORDER BY chart_date DESC
                 LIMIT 1
-                """
+                """,
+                (limit,),
             ).fetchone()
+
+            if not chart_date_row:
+                chart_date_row = conn.execute(
+                    """
+                    SELECT chart_date
+                    FROM chart_history
+                    WHERE source = 'bugs' AND chart_type = 'weekly'
+                    GROUP BY chart_date
+                    ORDER BY COUNT(*) DESC, chart_date DESC
+                    LIMIT 1
+                    """
+                ).fetchone()
 
             if not chart_date_row:
                 return {"chart_date": "", "source": "bugs", "items": []}

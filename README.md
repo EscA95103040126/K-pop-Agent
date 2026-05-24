@@ -1,3 +1,10 @@
+---
+title: Kpop Agent
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # K-pop Multi-Tool Agent
 
 一個以 Flask 為基礎的 K-pop 市場分析 Agent，整合榜單趨勢、Naver 新聞、韓文情感分析，透過 Gemini 產出結構化繁體中文報告，並透過 LINE Messaging API 回覆使用者。所有 API 金鑰缺失時自動進入 mock 模式，本機無需任何外部帳號即可展演。
