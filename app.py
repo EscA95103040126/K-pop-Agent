@@ -48,7 +48,12 @@ try:
         TemplateMessage,
         TextMessage,
     )
-    from linebot.v3.webhooks import MessageEvent, PostbackEvent, TextMessageContent
+    from linebot.v3.webhooks import (
+        FollowEvent,
+        MessageEvent,
+        PostbackEvent,
+        TextMessageContent,
+    )
 except ImportError:  # pragma: no cover - lets local mock mode run without LINE SDK.
     WebhookHandler = None
     InvalidSignatureError = Exception
@@ -65,6 +70,7 @@ except ImportError:  # pragma: no cover - lets local mock mode run without LINE 
     ButtonsTemplate = None
     TemplateMessage = None
     TextMessage = None
+    FollowEvent = None
     MessageEvent = None
     PostbackEvent = None
     TextMessageContent = None
@@ -1807,6 +1813,39 @@ def _build_help_message():
             "- 每日一首 K-pop 入口\n\n"
             "可分析藝人：\n"
             "aespa、IVE、BABYMONSTER、NMIXX、ILLIT、NCT、ZEROBASEONE、TXT、ENHYPEN、BOYNEXTDOOR"
+        )
+    )
+
+
+def _build_welcome_message():
+    return TextMessage(
+        text=(
+            "🌸 歡迎來到 KPOP 補給站！\n"
+            "從入坑到深陷，我都陪你 ✨\n"
+            "\n"
+            "你可以這樣玩 ↓\n"
+            "\n"
+            "🔍 分析藝人\n"
+            "└ 輸入「分析 aespa」看完整報告\n"
+            "\n"
+            "📊 本週榜單\n"
+            "└ 看 Bugs 即時週榜 + 歷史週次\n"
+            "\n"
+            "🎮 互動專區\n"
+            "└ 本命雷達、粉絲屬性、認人測驗、神圖抽卡\n"
+            "\n"
+            "🎧 每日一首\n"
+            "└ 今日 MV、直拍、經典舞台一鍵推薦\n"
+            "\n"
+            "💡 AI 入坑\n"
+            "└ 描述你的喜好，我幫你找到適合的團\n"
+            "\n"
+            "📮 我的口袋\n"
+            "└ 把喜歡的 MV / 直拍 / 神圖通通收進來\n"
+            "\n"
+            "👇 直接點下方功能選單開始，\n"
+            "或輸入「help」隨時查指令～\n"
+            "祝你追星愉快！🎀"
         )
     )
 
@@ -4466,6 +4505,29 @@ if line_handler is not None and MessageEvent is not None and TextMessageContent 
         def handle_postback(event: PostbackEvent) -> None:
             postback_data = getattr(event.postback, "data", "")
             _reply_line_event(event, str(postback_data))
+
+    if FollowEvent is not None:
+
+        @line_handler.add(FollowEvent)
+        def handle_follow(event: FollowEvent) -> None:
+            if not line_configuration:
+                return
+            try:
+                line_user_id = _line_user_id(event) or "line-user"
+                try:
+                    _ensure_kpop_radar_user(line_user_id)
+                except Exception:
+                    logger.exception("Could not initialize K-pop Radar user on follow.")
+                with ApiClient(line_configuration) as api_client:
+                    line_bot_api = MessagingApi(api_client)
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[_build_welcome_message()],
+                        )
+                    )
+            except Exception:
+                logger.exception("Welcome reply failed.")
 
 
 if __name__ == "__main__":
