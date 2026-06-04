@@ -93,6 +93,25 @@ class KpopRadarRepository:
     def enabled(self) -> bool:
         return self.client is not None
 
+    def status(self) -> dict[str, Any]:
+        if not self.client:
+            return {"enabled": False, "ok": False, "error": "not_configured"}
+        try:
+            self.client.request(
+                "GET",
+                "users",
+                params={"select": "line_user_id", "limit": "1"},
+            )
+        except KpopRadarError as exc:
+            return {"enabled": True, "ok": False, "error": str(exc)[:300]}
+        except Exception as exc:
+            return {
+                "enabled": True,
+                "ok": False,
+                "error": f"{exc.__class__.__name__}: {str(exc)[:240]}",
+            }
+        return {"enabled": True, "ok": True}
+
     def ensure_user(
         self,
         line_user_id: str,

@@ -310,6 +310,7 @@ def root_webhook() -> tuple[str, int]:
 def health() -> tuple[dict, int]:
     sqlite_status = _sqlite_status()
     bugs_tool_available = callable(fetch_bugs_weekly_chart)
+    supabase_status = radar_repo.status()
     status = "ok" if sqlite_status["ok"] and bugs_tool_available else "degraded"
     return {
         "status": status,
@@ -320,6 +321,7 @@ def health() -> tuple[dict, int]:
         "gemini_mode": _mode(settings.use_gemini_mock),
         "line_mode": _mode(settings.use_line_mock),
         "supabase_mode": "real" if radar_repo.enabled else "disabled",
+        "supabase": supabase_status,
     }, 200 if status == "ok" else 503
 
 
