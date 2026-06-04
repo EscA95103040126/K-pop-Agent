@@ -18,4 +18,4 @@ RUN python scripts/init_db.py && \
 
 EXPOSE 7860
 
-CMD ["python", "app.py"]
+CMD ["sh", "-c", "gunicorn -b 0.0.0.0:${PORT:-7860} app:app"]

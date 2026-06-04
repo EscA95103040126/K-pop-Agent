@@ -42,7 +42,7 @@ sdk: docker
 app_port: 7860
 ```
 
-`Dockerfile` 會安裝 `requirements.txt`，初始化 SQLite 資料庫，並以 `python app.py` 啟動 Flask app。
+`Dockerfile` 會安裝 `requirements.txt`，初始化 SQLite 資料庫，並以 `gunicorn` 啟動 Flask app。
 
 ## 主要功能
 
@@ -140,6 +140,8 @@ Play Zone 是互動遊玩區，目前包含：
 | YouTube Comments | 抓取韓文留言 | `scripts/fetch_youtube_comments.py` |
 | Sentiment CSV | 預標註留言情感分析 | `src/tools/sentiment.py`, `data/sample_comments.csv` |
 | Gemini | 市場洞察、AI 入坑、推薦原因生成 | `src/agent.py`, `app.py` |
+
+`本週榜單` 仍回覆資料庫中最新一週的 Bugs 前 10；若資料庫有更早週次，Bot 會額外顯示「歷史週次」按鈕，點選後回覆該週前 10。
 
 ## 系統架構
 
@@ -292,6 +294,9 @@ https://EscA95103040126-kpop-agent.hf.space/webhook
 ```bash
 # 抓取 Bugs 週榜
 python3 scripts/fetch_bugs_chart.py
+
+# 抓取指定週次 Bugs 週榜
+python3 scripts/fetch_bugs_chart.py --chart-date 2026-05-18
 
 # 預先產生藝人 cache
 python3 scripts/preload_cache.py

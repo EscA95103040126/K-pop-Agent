@@ -215,9 +215,23 @@ class KpopAnalysisAgent:
 
     def get_weekly_chart_cache(self, limit: int = 10) -> dict[str, Any]:
         if WEEKLY_CHART_CACHE_PATH.exists():
-            payload = json.loads(WEEKLY_CHART_CACHE_PATH.read_text(encoding="utf-8"))
-            if _is_fresh(payload.get("cached_at"), max_age=CHART_CACHE_TTL):
-                return payload
+            try:
+                payload = json.loads(WEEKLY_CHART_CACHE_PATH.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                logger.warning(
+                    "Could not read weekly chart cache; regenerating: %s",
+                    WEEKLY_CHART_CACHE_PATH,
+                    exc_info=True,
+                )
+            else:
+                cached_chart_date = payload.get("chart", {}).get("chart_date")
+                latest_chart = self.chart_repo.get_latest_weekly_chart(limit=limit)
+                latest_chart_date = latest_chart.get("chart_date")
+                if (
+                    _is_fresh(payload.get("cached_at"), max_age=CHART_CACHE_TTL)
+                    and cached_chart_date == latest_chart_date
+                ):
+                    return payload
         return self.preload_weekly_chart_cache(limit=limit)
 
     def preload_weekly_chart_cache(self, limit: int = 10) -> dict[str, Any]:
@@ -237,23 +251,22 @@ class KpopAnalysisAgent:
 
     def generate_weekly_chart_report(self, limit: int = 10) -> str:
         chart = self.chart_repo.get_latest_weekly_chart(limit=limit)
-        items = chart.get("items", [])
-        if not items:
-            return "# 本週 K-pop 榜單\n\n目前沒有可用的 Bugs 週榜資料。"
+        return _format_weekly_chart_report(
+            chart=chart,
+            title="# 本週 K-pop 榜單",
+            empty_text="目前沒有可用的 Bugs 週榜資料。",
+        )
 
-        lines = [
-            "# 本週 K-pop 榜單",
-            "",
-            f"資料來源：Bugs 週榜",
-            f"榜單日期：{chart.get('chart_date', '未知')}",
-            "",
-        ]
-        for item in items:
-            change = _format_rank_change(item.get("change_rank", 0))
-            lines.append(
-                f"{item['rank']}. {item['title']} - {item['artist']} ({change})"
-            )
-        return "\n".join(lines)
+    def generate_weekly_chart_report_for_date(self, chart_date: str, limit: int = 10) -> str:
+        chart = self.chart_repo.get_weekly_chart_by_date(chart_date=chart_date, limit=limit)
+        return _format_weekly_chart_report(
+            chart=chart,
+            title="# Bugs 歷史週榜",
+            empty_text=f"目前沒有 {chart_date} 的 Bugs 週榜資料。",
+        )
+
+    def list_weekly_chart_dates(self, limit: int = 8, min_items: int = 1) -> list[str]:
+        return self.chart_repo.list_weekly_chart_dates(limit=limit, min_items=min_items)
 
     def _fetch_sentiment(self, artist_name: str) -> dict:
         try:
@@ -961,3 +974,26 @@ def _format_rank_change(change_rank: int) -> str:
     if change_rank < 0:
         return f"▼{abs(change_rank)}"
     return "-"
+
+
+def _format_weekly_chart_report(
+    *,
+    chart: dict[str, Any],
+    title: str,
+    empty_text: str,
+) -> str:
+    items = chart.get("items", [])
+    if not items:
+        return f"{title}\n\n{empty_text}"
+
+    lines = [
+        title,
+        "",
+        "資料來源：Bugs 週榜",
+        f"榜單日期：{chart.get('chart_date', '未知')}",
+        "",
+    ]
+    for item in items:
+        change = _format_rank_change(item.get("change_rank", 0))
+        lines.append(f"{item['rank']}. {item['title']} - {item['artist']} ({change})")
+    return "\n".join(lines)

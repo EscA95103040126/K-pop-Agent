@@ -1021,3 +1021,101 @@ def test_member_quiz_does_not_affect_photo_card_or_fan_attribute(monkeypatch, tm
 
     assert "神圖抽卡結果" in photo_response.get_json()["report"]
     assert fan_response.get_json()["report"].startswith("粉絲屬性測驗 Q1/5")
+
+
+def test_analyze_artist_payload_is_used_when_message_has_no_artist() -> None:
+    client = app.test_client()
+
+    response = client.post(
+        "/analyze",
+        json={"message": "請幫我分析", "artist": "aespa"},
+    )
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["cache"]["type"] == "artist"
+    assert payload["cache"]["artist"] == "aespa"
+
+
+def test_historical_weekly_chart_command_returns_selected_week() -> None:
+    client = app.test_client()
+
+    response = client.post("/analyze", json={"message": "歷史週榜:2026-05-11"})
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["cache"]["type"] == "weekly_chart_history"
+    assert payload["cache"]["chart_date"] == "2026-05-11"
+    assert payload["report"].startswith("# Bugs 歷史週榜")
+    assert "榜單日期：2026-05-11" in payload["report"]
+
+
+def test_weekly_chart_history_flex_excludes_current_week(monkeypatch) -> None:
+    monkeypatch.setattr(
+        app_module,
+        "agent",
+        SimpleNamespace(
+            list_weekly_chart_dates=lambda limit=8, min_items=1: [
+                "2026-05-18",
+                "2026-05-11",
+            ]
+        ),
+    )
+
+    flex = app_module._build_weekly_chart_history_flex_contents(
+        current_chart_date="2026-05-18"
+    )
+
+    assert flex is not None
+    actions = [item["action"] for item in flex["body"]["contents"]]
+    assert actions == [
+        {
+            "type": "postback",
+            "label": "5/11-5/17",
+            "data": "歷史週榜:2026-05-11",
+            "displayText": "5/11-5/17 週榜",
+        }
+    ]
+
+
+def test_bias_radar_session_prunes_expired_session(monkeypatch) -> None:
+    app_module.bias_radar_sessions.clear()
+    app_module.bias_radar_sessions["expired-user"] = {
+        "question_index": 1,
+        "answers": ["男團"],
+        "updated_at": 1,
+    }
+    monkeypatch.setattr(app_module, "time", lambda: 10_000)
+
+    assert app_module._is_bias_radar_quiz_request("普通訊息", "expired-user") is False
+    assert "expired-user" not in app_module.bias_radar_sessions
+
+
+def test_reply_text_bias_radar_uses_passed_user_id() -> None:
+    app_module.bias_radar_sessions.clear()
+
+    first_reply = app_module._reply_text_for_message(
+        "本命雷達測驗",
+        user_id="text-flow-user",
+    )
+    second_reply = app_module._reply_text_for_message(
+        "本命雷達:0:女團",
+        user_id="text-flow-user",
+    )
+
+    assert first_reply.startswith("本命雷達測驗 Q1/5")
+    assert second_reply.startswith("本命雷達測驗 Q2/5")
+
+
+def test_ai_curator_reason_context_prunes_expired_context(monkeypatch) -> None:
+    app_module.ai_curator_reason_contexts.clear()
+    app_module.ai_curator_reason_contexts["expired-user"] = {
+        "members": [{"artist": "NMIXX", "member": "Sullyoon"}],
+        "stored_at": 1,
+    }
+    monkeypatch.setattr(app_module, "time", lambda: 10_000)
+
+    members = app_module._ai_curator_reason_context_members("expired-user")
+
+    assert members == []
+    assert "expired-user" not in app_module.ai_curator_reason_contexts

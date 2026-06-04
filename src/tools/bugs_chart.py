@@ -22,8 +22,19 @@ BUGS_HEADERS = {
 DATE_RANGE_RE = re.compile(r"(\d{4})\.(\d{2})\.(\d{2})\s*~\s*\d{4}\.\d{2}\.\d{2}")
 
 
-def fetch_bugs_weekly_chart(limit: int = 100) -> list[dict[str, Any]]:
-    response = requests.get(BUGS_WEEKLY_CHART_URL, headers=BUGS_HEADERS, timeout=10)
+def fetch_bugs_weekly_chart(
+    limit: int = 100,
+    chart_date: str | None = None,
+) -> list[dict[str, Any]]:
+    params = {}
+    if chart_date:
+        params["chartdate"] = _normalize_chart_date_param(chart_date)
+    response = requests.get(
+        BUGS_WEEKLY_CHART_URL,
+        headers=BUGS_HEADERS,
+        params=params or None,
+        timeout=10,
+    )
     response.raise_for_status()
     return parse_bugs_weekly_chart(response.text, limit=limit)
 
@@ -47,14 +58,25 @@ def parse_bugs_weekly_chart(
 
 def save_bugs_weekly_chart(
     limit: int = 100,
+    chart_date: str | None = None,
     rows: list[dict[str, Any]] | None = None,
 ) -> int:
-    rows = rows if rows is not None else fetch_bugs_weekly_chart(limit=limit)
+    rows = rows if rows is not None else fetch_bugs_weekly_chart(
+        limit=limit,
+        chart_date=chart_date,
+    )
     return ChartHistoryRepository().insert_chart_rows(rows)
 
 
 def fetch_weekly_chart() -> list[dict[str, Any]]:
     return fetch_bugs_weekly_chart()
+
+
+def _normalize_chart_date_param(value: str) -> str:
+    compact = re.sub(r"\D+", "", value)
+    if len(compact) != 8:
+        raise ValueError("chart_date must be YYYY-MM-DD or YYYYMMDD")
+    return compact
 
 
 def _parse_chart_row(row: Any, chart_date: str, fetch_date: str) -> dict[str, Any] | None:

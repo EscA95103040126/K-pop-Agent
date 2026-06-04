@@ -8,6 +8,7 @@ import re
 import sqlite3
 import unicodedata
 from collections import OrderedDict
+from datetime import date, timedelta
 from pathlib import Path
 from time import monotonic, time
 from typing import Callable
@@ -79,7 +80,12 @@ csv_row_cache: dict[Path, tuple[tuple[int, int], list[dict[str, str]]]] = {}
 BIAS_RADAR_TRIGGERS = {"本命雷達測驗", "本命雷達", "測本命"}
 BIAS_RADAR_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
 bias_radar_sessions: dict[str, dict[str, object]] = {}
-ai_curator_reason_contexts: dict[str, list[dict[str, str]]] = {}
+ai_curator_reason_contexts: dict[str, dict[str, object] | list[dict[str, str]]] = {}
+BIAS_RADAR_SESSION_TTL_SECONDS = 60 * 30
+BIAS_RADAR_SESSION_MAX_SIZE = 500
+AI_CURATOR_REASON_CONTEXT_TTL_SECONDS = 60 * 30
+AI_CURATOR_REASON_CONTEXT_MAX_SIZE = 500
+HISTORICAL_WEEKLY_CHART_PREFIX = "歷史週榜:"
 PHOTO_CARD_EMPTY_TEXT = "目前還沒有神圖資料，請先補 data/play_zone/photo_cards.csv"
 MEMBER_QUIZ_EMPTY_TEXT = (
     "目前還沒有認人測驗題目，請先補 data/play_zone/member_quiz.csv，"
@@ -308,14 +314,16 @@ def play_zone_bias_radar_image(filename: str):
 @app.post("/analyze")
 def analyze() -> tuple[dict, int]:
     payload = request.get_json(silent=True) or {}
-    message = payload.get("message", "")
-    artist = payload.get("artist", "")
+    message = str(payload.get("message") or "").strip()
+    artist = str(payload.get("artist") or "").strip()
     user_id = str(payload.get("user_id") or "analyze-user")
     if not message and artist:
         message = f"分析 {artist}"
     if not message:
         return {"error": "message or artist is required"}, 400
     intent = route_message(message)
+    artist_from_payload = route_message(f"分析 {artist}").artist if artist else ""
+    analysis_artist = intent.artist or artist_from_payload
     if _is_play_zone_request(message):
         response = {
             "report": "K-pop Play Zone",
@@ -360,6 +368,16 @@ def analyze() -> tuple[dict, int]:
                 else _build_photo_card_redraw_flex_contents()
             ),
         }
+    elif _is_historical_weekly_chart_request(message):
+        chart_date = _historical_weekly_chart_date(message)
+        response = {
+            "report": agent.generate_weekly_chart_report_for_date(chart_date),
+            "cache": {
+                "type": "weekly_chart_history",
+                "chart_date": chart_date,
+            },
+            "flex": None,
+        }
     elif intent.name == "weekly_chart":
         chart_cache = agent.get_weekly_chart_cache()
         response = {
@@ -368,11 +386,13 @@ def analyze() -> tuple[dict, int]:
                 "type": "weekly_chart",
                 "cached_at": chart_cache["cached_at"],
             },
-            "flex": None,
+            "flex": _build_weekly_chart_history_flex_contents(
+                current_chart_date=chart_cache.get("chart", {}).get("chart_date", ""),
+            ),
         }
-    elif artist or _is_full_artist_report_request(message):
+    elif analysis_artist and (artist or _is_full_artist_report_request(message)):
         artist_cache = agent.get_artist_cache(
-            intent.artist,
+            analysis_artist,
             period_months=intent.period_months,
         )
         response = {
@@ -387,7 +407,7 @@ def analyze() -> tuple[dict, int]:
     elif _is_ai_curator_reason_followup(message):
         response = _ai_curator_reason_followup_response(message, user_id=user_id)
     else:
-        report = _reply_text_for_message(message)
+        report = _reply_text_for_message(message, user_id=user_id)
         response = {"report": report, "flex": None}
     return response, 200
 
@@ -1421,6 +1441,73 @@ def _selection_page_button(
     }
 
 
+def _build_weekly_chart_history_flex_contents(
+    current_chart_date: str = "",
+    limit: int = 6,
+) -> dict | None:
+    chart_dates = [
+        chart_date
+        for chart_date in agent.list_weekly_chart_dates(limit=limit + 1, min_items=1)
+        if chart_date and chart_date != current_chart_date
+    ][:limit]
+    if not chart_dates:
+        return None
+
+    return {
+        "type": "bubble",
+        "size": "mega",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#8B5E52",
+            "paddingAll": "16px",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "歷史週次",
+                    "weight": "bold",
+                    "size": "lg",
+                    "color": "#FFFFFF",
+                },
+                {
+                    "type": "text",
+                    "text": "點選週次查看該週 Bugs 前 10",
+                    "size": "xs",
+                    "color": "#FDEBD8",
+                    "margin": "sm",
+                },
+            ],
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#FAF7F4",
+            "spacing": "sm",
+            "paddingAll": "14px",
+            "contents": [
+                _weekly_chart_history_button(chart_date)
+                for chart_date in chart_dates
+            ],
+        },
+    }
+
+
+def _weekly_chart_history_button(chart_date: str) -> dict:
+    label = _weekly_chart_date_label(chart_date)
+    return {
+        "type": "button",
+        "height": "sm",
+        "style": "secondary",
+        "color": "#E8D5C4",
+        "action": {
+            "type": "postback",
+            "label": label,
+            "data": f"{HISTORICAL_WEEKLY_CHART_PREFIX}{chart_date}",
+            "displayText": f"{label} 週榜",
+        },
+    }
+
+
 def _build_help_message():
     return TextMessage(
         text=(
@@ -1564,6 +1651,7 @@ def _is_fixed_command_request(message: str) -> bool:
         or _is_daily_kpop_request(message)
         or _is_daily_kpop_category_request(message)
         or _is_photo_card_request(message)
+        or _is_historical_weekly_chart_request(message)
         or _is_play_zone_placeholder_request(message)
         or _is_bias_radar_quiz_request(message)
         or route_message(message).name == "weekly_chart"
@@ -1578,6 +1666,7 @@ def _is_fan_attribute_quiz_request(message: str) -> bool:
 
 def _is_bias_radar_quiz_request(message: str, user_id: str = "analyze-user") -> bool:
     normalized = message.strip()
+    _prune_bias_radar_sessions()
     return (
         normalized in BIAS_RADAR_TRIGGERS
         or normalized.startswith("本命雷達:")
@@ -1619,6 +1708,34 @@ def _is_daily_kpop_category_request(message: str) -> bool:
 def _is_photo_card_request(message: str) -> bool:
     normalized = message.strip()
     return normalized in {"神圖抽卡", "再抽一次神圖", "再抽一張", "抽卡"}
+
+
+def _is_historical_weekly_chart_request(message: str) -> bool:
+    return _historical_weekly_chart_date(message) != ""
+
+
+def _historical_weekly_chart_date(message: str) -> str:
+    normalized = message.strip()
+    if not normalized.startswith(HISTORICAL_WEEKLY_CHART_PREFIX):
+        return ""
+    raw_date = normalized.removeprefix(HISTORICAL_WEEKLY_CHART_PREFIX).strip()
+    return _normalize_weekly_chart_date(raw_date)
+
+
+def _normalize_weekly_chart_date(raw_date: str) -> str:
+    compact = re.sub(r"\D+", "", raw_date)
+    if len(compact) != 8:
+        return ""
+    return f"{compact[:4]}-{compact[4:6]}-{compact[6:]}"
+
+
+def _weekly_chart_date_label(chart_date: str) -> str:
+    try:
+        start_date = date.fromisoformat(chart_date)
+    except ValueError:
+        return chart_date
+    end_date = start_date + timedelta(days=6)
+    return f"{start_date.month}/{start_date.day}-{end_date.month}/{end_date.day}"
 
 
 def _is_ai_curator_reason_followup(message: str) -> bool:
@@ -1688,8 +1805,8 @@ def _reply_text_for_message(message: str, user_id: str = "analyze-user") -> str:
         return "請在 LINE 中點選 AI 入坑，或直接輸入你的 K-pop 偏好。"
     if _is_ai_curator_preference_request(message):
         return _ai_curator_response(message, user_id=user_id)["report"]
-    if _is_bias_radar_quiz_request(message):
-        return _bias_radar_quiz_response("text-user", message)["report"]
+    if _is_bias_radar_quiz_request(message, user_id):
+        return _bias_radar_quiz_response(user_id, message)["report"]
     if _is_fan_attribute_quiz_request(message):
         return _fan_attribute_quiz_text(message)
     if _is_member_quiz_answer(message):
@@ -1704,6 +1821,8 @@ def _reply_text_for_message(message: str, user_id: str = "analyze-user") -> str:
         return _play_zone_placeholder_text(message)
     if _is_daily_kpop_category_request(message):
         return _daily_kpop_placeholder_text(message)
+    if _is_historical_weekly_chart_request(message):
+        return agent.generate_weekly_chart_report_for_date(_historical_weekly_chart_date(message))
     if route_message(message).name == "weekly_chart":
         return agent.analyze_message_local(message)
     if _is_full_artist_report_request(message):
@@ -1756,6 +1875,8 @@ def _store_ai_curator_reason_context(
 ) -> None:
     if not user_id:
         return
+    now = time()
+    _prune_ai_curator_reason_contexts(now=now)
     compact_members = [
         {
             "artist": recommendation.get("artist", "").strip(),
@@ -1766,9 +1887,70 @@ def _store_ai_curator_reason_context(
         and recommendation.get("member", "").strip()
     ]
     if compact_members:
-        ai_curator_reason_contexts[user_id] = compact_members
+        ai_curator_reason_contexts[user_id] = {
+            "members": compact_members,
+            "stored_at": now,
+        }
+        _trim_ai_curator_reason_contexts()
     else:
         ai_curator_reason_contexts.pop(user_id, None)
+
+
+def _ai_curator_reason_context_members(user_id: str) -> list[dict[str, str]]:
+    entry = ai_curator_reason_contexts.get(user_id)
+    if not entry:
+        return []
+    if isinstance(entry, list):
+        return entry
+
+    stored_at = _safe_float(entry.get("stored_at"))
+    if stored_at and time() - stored_at > AI_CURATOR_REASON_CONTEXT_TTL_SECONDS:
+        ai_curator_reason_contexts.pop(user_id, None)
+        return []
+
+    members = entry.get("members")
+    if not isinstance(members, list):
+        return []
+    return [
+        member
+        for member in members
+        if isinstance(member, dict)
+    ]
+
+
+def _prune_ai_curator_reason_contexts(now: float | None = None) -> None:
+    current_time = now if now is not None else time()
+    expired_user_ids = []
+    for user_id, entry in ai_curator_reason_contexts.items():
+        if isinstance(entry, list):
+            continue
+        stored_at = _safe_float(entry.get("stored_at"))
+        if stored_at and current_time - stored_at > AI_CURATOR_REASON_CONTEXT_TTL_SECONDS:
+            expired_user_ids.append(user_id)
+    for user_id in expired_user_ids:
+        ai_curator_reason_contexts.pop(user_id, None)
+
+
+def _trim_ai_curator_reason_contexts() -> None:
+    while len(ai_curator_reason_contexts) > AI_CURATOR_REASON_CONTEXT_MAX_SIZE:
+        oldest_user_id = min(
+            ai_curator_reason_contexts,
+            key=lambda user_id: _context_stored_at(ai_curator_reason_contexts[user_id]),
+        )
+        ai_curator_reason_contexts.pop(oldest_user_id, None)
+
+
+def _context_stored_at(entry: dict[str, object] | list[dict[str, str]]) -> float:
+    if isinstance(entry, list):
+        return 0
+    return _safe_float(entry.get("stored_at"))
+
+
+def _safe_float(value: object) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _clean_ai_curator_query(message: str) -> str:
@@ -2211,7 +2393,7 @@ def _find_ai_curator_reason_member_from_context(
 ) -> dict[str, str] | None:
     if not user_id:
         return None
-    recommendations = ai_curator_reason_contexts.get(user_id) or []
+    recommendations = _ai_curator_reason_context_members(user_id)
     if not recommendations:
         return None
     members = _load_ai_curator_reason_members()
@@ -2614,8 +2796,9 @@ def _load_cached_csv_rows(
 def _bias_radar_quiz_response(user_id: str, message: str) -> dict:
     normalized = message.strip()
     questions = _load_bias_radar_questions()
+    _prune_bias_radar_sessions()
     if normalized in BIAS_RADAR_TRIGGERS:
-        bias_radar_sessions[user_id] = {"question_index": 0, "answers": []}
+        _store_bias_radar_session(user_id, question_index=0, answers=[])
         return {
             "report": _bias_radar_question_text(0),
             "flex": _build_bias_radar_question_flex_contents(0),
@@ -2623,7 +2806,7 @@ def _bias_radar_quiz_response(user_id: str, message: str) -> dict:
 
     session = bias_radar_sessions.get(user_id)
     if not session:
-        bias_radar_sessions[user_id] = {"question_index": 0, "answers": []}
+        _store_bias_radar_session(user_id, question_index=0, answers=[])
         return {
             "report": _bias_radar_question_text(0),
             "flex": _build_bias_radar_question_flex_contents(0),
@@ -2641,10 +2824,7 @@ def _bias_radar_quiz_response(user_id: str, message: str) -> dict:
     answers.append(option)
     question_index += 1
     if question_index < len(questions):
-        bias_radar_sessions[user_id] = {
-            "question_index": question_index,
-            "answers": answers,
-        }
+        _store_bias_radar_session(user_id, question_index=question_index, answers=answers)
         return {
             "report": _bias_radar_question_text(question_index),
             "flex": _build_bias_radar_question_flex_contents(question_index),
@@ -2656,6 +2836,40 @@ def _bias_radar_quiz_response(user_id: str, message: str) -> dict:
         "report": _format_bias_radar_result_text(result),
         "flex": _build_bias_radar_result_flex_contents(result),
     }
+
+
+def _store_bias_radar_session(user_id: str, question_index: int, answers: list[str]) -> None:
+    bias_radar_sessions[user_id] = {
+        "question_index": question_index,
+        "answers": answers,
+        "updated_at": time(),
+    }
+    _trim_bias_radar_sessions()
+
+
+def _prune_bias_radar_sessions(now: float | None = None) -> None:
+    current_time = now if now is not None else time()
+    expired_user_ids = [
+        user_id
+        for user_id, session in bias_radar_sessions.items()
+        if current_time - _session_updated_at(session) > BIAS_RADAR_SESSION_TTL_SECONDS
+    ]
+    for user_id in expired_user_ids:
+        bias_radar_sessions.pop(user_id, None)
+
+
+def _trim_bias_radar_sessions() -> None:
+    while len(bias_radar_sessions) > BIAS_RADAR_SESSION_MAX_SIZE:
+        oldest_user_id = min(
+            bias_radar_sessions,
+            key=lambda user_id: _session_updated_at(bias_radar_sessions[user_id]),
+        )
+        bias_radar_sessions.pop(oldest_user_id, None)
+
+
+def _session_updated_at(session: dict[str, object]) -> float:
+    updated_at = _safe_float(session.get("updated_at"))
+    return updated_at or time()
 
 
 def _bias_radar_answer_from_message(message: str, question_index: int) -> str | None:
@@ -3609,11 +3823,28 @@ if line_handler is not None and MessageEvent is not None and TextMessageContent 
                         ),
                     ]
             else:
-                if route_message(user_text).name == "weekly_chart":
+                if _is_historical_weekly_chart_request(user_text):
+                    report = agent.generate_weekly_chart_report_for_date(
+                        _historical_weekly_chart_date(user_text)
+                    )
+                    reply_message = TextMessage(text=fit_line_text(report))
+                    fallback_text = fit_line_text(report)
+                elif route_message(user_text).name == "weekly_chart":
                     chart_cache = agent.get_weekly_chart_cache()
                     report = chart_cache["report"]
                     reply_message = _build_line_reply_message(report)
                     fallback_text = fit_line_text(report)
+                    history_flex = _build_weekly_chart_history_flex_contents(
+                        current_chart_date=chart_cache.get("chart", {}).get("chart_date", ""),
+                    )
+                    if history_flex is not None:
+                        reply_messages = [
+                            reply_message,
+                            _build_line_flex_message(
+                                history_flex,
+                                alt_text="歷史週次",
+                            ),
+                        ]
                 elif _is_full_artist_report_request(user_text):
                     intent = route_message(user_text)
                     artist_cache = agent.get_artist_cache(

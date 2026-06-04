@@ -162,3 +162,32 @@ def test_chart_db_skips_incomplete_latest_weekly_chart(tmp_path: Path) -> None:
 
     assert result["chart_date"] == "2026-05-11"
     assert len(result["items"]) == 10
+
+
+def test_chart_db_returns_weekly_chart_by_date_and_lists_dates(tmp_path: Path) -> None:
+    db_path = tmp_path / "chart_history.db"
+    repo = ChartHistoryRepository(db_path=db_path)
+    rows = []
+    for chart_date in ("2026-05-11", "2026-05-18"):
+        for rank in range(1, 4):
+            rows.append(
+                {
+                    "fetch_date": "2026-05-25",
+                    "chart_date": chart_date,
+                    "source": "bugs",
+                    "chart_type": "weekly",
+                    "rank": rank,
+                    "title": f"Song {chart_date} {rank}",
+                    "artist": f"Artist {rank}",
+                    "album": "Album",
+                    "change_rank": 0,
+                }
+            )
+    repo.insert_chart_rows(rows)
+
+    chart = repo.get_weekly_chart_by_date("2026-05-11", limit=2)
+    dates = repo.list_weekly_chart_dates(limit=5)
+
+    assert chart["chart_date"] == "2026-05-11"
+    assert [item["rank"] for item in chart["items"]] == [1, 2]
+    assert dates == ["2026-05-18", "2026-05-11"]

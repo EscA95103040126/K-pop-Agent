@@ -207,6 +207,49 @@ class ChartHistoryRepository:
             "items": [dict(row) for row in rows],
         }
 
+    def get_weekly_chart_by_date(self, chart_date: str, limit: int = 10) -> dict[str, Any]:
+        if not self.db_path.exists():
+            return {"chart_date": chart_date, "source": "bugs", "items": []}
+
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT rank, title, artist, album, change_rank
+                FROM chart_history
+                WHERE source = 'bugs' AND chart_type = 'weekly' AND chart_date = ?
+                ORDER BY rank ASC
+                LIMIT ?
+                """,
+                (chart_date, limit),
+            ).fetchall()
+
+        return {
+            "chart_date": chart_date,
+            "source": "bugs",
+            "items": [dict(row) for row in rows],
+        }
+
+    def list_weekly_chart_dates(self, limit: int = 8, min_items: int = 1) -> list[str]:
+        if not self.db_path.exists():
+            return []
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT chart_date
+                FROM chart_history
+                WHERE source = 'bugs' AND chart_type = 'weekly'
+                GROUP BY chart_date
+                HAVING COUNT(*) >= ?
+                ORDER BY chart_date DESC
+                LIMIT ?
+                """,
+                (min_items, limit),
+            ).fetchall()
+
+        return [str(row[0]) for row in rows]
+
 
 def get_artist_chart_trend(artist: str, weeks: int = 12) -> dict[str, Any]:
     return ChartHistoryRepository().get_artist_trend(artist=artist, weeks=weeks)

@@ -1,4 +1,4 @@
-from src.tools.bugs_chart import parse_bugs_weekly_chart
+from src.tools.bugs_chart import fetch_bugs_weekly_chart, parse_bugs_weekly_chart
 
 
 BUGS_SAMPLE_HTML = """
@@ -70,3 +70,25 @@ def test_parse_bugs_weekly_chart() -> None:
             "change_rank": -3,
         },
     ]
+
+
+def test_fetch_bugs_weekly_chart_passes_chartdate_param(monkeypatch) -> None:
+    captured = {}
+
+    class DummyResponse:
+        text = BUGS_SAMPLE_HTML
+
+        def raise_for_status(self):
+            return None
+
+    def fake_get(url, **kwargs):
+        captured["url"] = url
+        captured["kwargs"] = kwargs
+        return DummyResponse()
+
+    monkeypatch.setattr("src.tools.bugs_chart.requests.get", fake_get)
+
+    rows = fetch_bugs_weekly_chart(chart_date="2026-05-18")
+
+    assert rows
+    assert captured["kwargs"]["params"] == {"chartdate": "20260518"}
