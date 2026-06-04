@@ -49,3 +49,10 @@ def test_route_message_detects_weekly_chart_requests() -> None:
 
         assert intent.name == "weekly_chart"
         assert intent.artist == ""
+
+
+def test_route_message_unknown_text_does_not_fallback_to_aespa() -> None:
+    intent = route_message("這是一個普通聊天句子")
+
+    assert intent.artist == ""
+    assert intent.name == "artist_analysis"

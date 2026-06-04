@@ -7,10 +7,10 @@ import random
 import re
 import sqlite3
 import unicodedata
-from io import BytesIO
 from collections import OrderedDict
 from pathlib import Path
 from time import monotonic, time
+from typing import Callable
 from urllib.parse import quote
 
 import requests
@@ -75,6 +75,7 @@ photo_card_queue: list[dict[str, str]] = []
 photo_card_source_key: tuple[tuple[str, str, str], ...] = ()
 member_quiz_queue: list[dict[str, str]] = []
 member_quiz_source_key: tuple[tuple[str, str, str, str, str, str], ...] = ()
+csv_row_cache: dict[Path, tuple[tuple[int, int], list[dict[str, str]]]] = {}
 BIAS_RADAR_TRIGGERS = {"本命雷達測驗", "本命雷達", "測本命"}
 BIAS_RADAR_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
 bias_radar_sessions: dict[str, dict[str, object]] = {}
@@ -2256,19 +2257,18 @@ def _find_ai_curator_reason_artist(message: str) -> str | None:
 
 def _load_ai_curator_reason_members() -> list[dict[str, str]]:
     csv_path = settings.base_dir / "data" / "play_zone" / "bias_radar_members.csv"
-    if not csv_path.exists():
-        return []
-    with csv_path.open(newline="", encoding="utf-8") as file:
-        return [
-            row
-            for row in csv.DictReader(file)
-            if row.get("artist", "").strip()
-            and row.get("member", "").strip()
-            and any(
-                row.get(field, "").strip()
-                for field in ("appearance", "position", "vibe", "relationship")
-            )
-        ]
+    return _load_cached_csv_rows(csv_path, _ai_curator_reason_member_is_usable)
+
+
+def _ai_curator_reason_member_is_usable(row: dict[str, str]) -> bool:
+    return (
+        bool(row.get("artist", "").strip())
+        and bool(row.get("member", "").strip())
+        and any(
+            row.get(field, "").strip()
+            for field in ("appearance", "position", "vibe", "relationship")
+        )
+    )
 
 
 def _fallback_ai_curator_reason_answer(member_row: dict[str, str]) -> str:
@@ -2586,6 +2586,31 @@ def _photo_card_placeholder_text() -> str:
     return PHOTO_CARD_EMPTY_TEXT
 
 
+def _load_cached_csv_rows(
+    csv_path: Path,
+    row_filter: Callable[[dict[str, str]], bool],
+    row_mapper: Callable[[dict[str, str]], dict[str, str]] | None = None,
+) -> list[dict[str, str]]:
+    if not csv_path.exists():
+        csv_row_cache.pop(csv_path, None)
+        return []
+
+    stat = csv_path.stat()
+    cache_key = (stat.st_mtime_ns, stat.st_size)
+    cached = csv_row_cache.get(csv_path)
+    if cached and cached[0] == cache_key:
+        return [dict(row) for row in cached[1]]
+
+    with csv_path.open(newline="", encoding="utf-8") as file:
+        rows = [
+            row_mapper(row) if row_mapper else dict(row)
+            for row in csv.DictReader(file)
+            if row_filter(row)
+        ]
+    csv_row_cache[csv_path] = (cache_key, rows)
+    return [dict(row) for row in rows]
+
+
 def _bias_radar_quiz_response(user_id: str, message: str) -> dict:
     normalized = message.strip()
     questions = _load_bias_radar_questions()
@@ -2673,14 +2698,7 @@ def _load_bias_radar_questions() -> list[dict]:
 
 def _load_bias_radar_members() -> list[dict[str, str]]:
     csv_path = settings.base_dir / "data" / "play_zone" / "bias_radar_members.csv"
-    if not csv_path.exists():
-        return []
-    with csv_path.open(newline="", encoding="utf-8") as file:
-        return [
-            row
-            for row in csv.DictReader(file)
-            if _bias_radar_row_is_usable(row)
-        ]
+    return _load_cached_csv_rows(csv_path, _bias_radar_row_is_usable)
 
 
 def _bias_radar_row_is_usable(row: dict[str, str]) -> bool:
@@ -3017,14 +3035,11 @@ def _load_member_quiz_recommendation() -> dict[str, str] | None:
 
 def _load_member_quiz_rows() -> list[dict[str, str]]:
     csv_path = settings.base_dir / "data" / "play_zone" / "member_quiz.csv"
-    if not csv_path.exists():
-        return []
-    with csv_path.open(newline="", encoding="utf-8") as file:
-        return [
-            _normalize_member_quiz_row(row)
-            for row in csv.DictReader(file)
-            if _member_quiz_row_is_usable(row)
-        ]
+    return _load_cached_csv_rows(
+        csv_path,
+        _member_quiz_row_is_usable,
+        _normalize_member_quiz_row,
+    )
 
 
 def _normalize_member_quiz_row(row: dict[str, str]) -> dict[str, str]:
@@ -3088,25 +3103,34 @@ def _send_member_quiz_flex_image(filename: str):
     try:
         from PIL import Image, ImageOps
 
-        with Image.open(_member_quiz_image_dir() / filename) as image:
-            source = ImageOps.exif_transpose(image).convert("RGB")
-            side = max(source.size)
-            canvas = Image.new("RGB", (side, side), color=(247, 250, 248))
-            offset = ((side - source.width) // 2, (side - source.height) // 2)
-            canvas.paste(source, offset)
-            output = BytesIO()
-            canvas.save(output, format="JPEG", quality=92, optimize=True)
+        source_path, cache_path = _member_quiz_flex_image_cache_paths(filename)
+        if not cache_path.exists():
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            with Image.open(source_path) as image:
+                source = ImageOps.exif_transpose(image).convert("RGB")
+                side = max(source.size)
+                canvas = Image.new("RGB", (side, side), color=(247, 250, 248))
+                offset = ((side - source.width) // 2, (side - source.height) // 2)
+                canvas.paste(source, offset)
+                canvas.save(cache_path, format="JPEG", quality=92, optimize=True)
     except Exception:
         logger.exception("Could not build member quiz Flex image: %s", filename)
         abort(404)
 
-    output.seek(0)
     return send_file(
-        output,
+        cache_path,
         mimetype="image/jpeg",
         download_name=f"{Path(filename).stem}_flex.jpg",
         max_age=60 * 60,
     )
+
+
+def _member_quiz_flex_image_cache_paths(filename: str) -> tuple[Path, Path]:
+    source_path = _member_quiz_image_dir() / filename
+    stat = source_path.stat()
+    cache_dir = settings.base_dir / "data" / "cache" / "play_zone" / "flex"
+    cache_name = f"{Path(filename).stem}-{stat.st_mtime_ns}-{stat.st_size}.jpg"
+    return source_path, cache_dir / cache_name
 
 
 def _member_quiz_filename_from_image_path(image_path: str) -> str | None:
@@ -3162,15 +3186,11 @@ def _load_daily_kpop_recommendation(category: str) -> dict[str, str] | None:
 
 def _load_daily_kpop_rows(category: str) -> list[dict[str, str]]:
     csv_path = settings.base_dir / "data" / "play_zone" / _daily_kpop_csv_filename(category)
-    if not csv_path.exists():
-        return []
-    with csv_path.open(newline="", encoding="utf-8") as file:
-        return [
-            row
-            for row in csv.DictReader(file)
-            if row.get("title", "").strip()
-            and row.get("url", "").strip()
-        ]
+    return _load_cached_csv_rows(csv_path, _daily_kpop_row_is_usable)
+
+
+def _daily_kpop_row_is_usable(row: dict[str, str]) -> bool:
+    return bool(row.get("title", "").strip() and row.get("url", "").strip())
 
 
 def _load_photo_card_recommendation() -> dict[str, str] | None:
@@ -3192,16 +3212,15 @@ def _load_photo_card_recommendation() -> dict[str, str] | None:
 
 def _load_photo_card_rows() -> list[dict[str, str]]:
     csv_path = settings.base_dir / "data" / "play_zone" / "photo_cards.csv"
-    if not csv_path.exists():
-        return []
-    with csv_path.open(newline="", encoding="utf-8") as file:
-        return [
-            row
-            for row in csv.DictReader(file)
-            if row.get("artist", "").strip()
-            and row.get("type", "").strip()
-            and row.get("url", "").strip()
-        ]
+    return _load_cached_csv_rows(csv_path, _photo_card_row_is_usable)
+
+
+def _photo_card_row_is_usable(row: dict[str, str]) -> bool:
+    return bool(
+        row.get("artist", "").strip()
+        and row.get("type", "").strip()
+        and row.get("url", "").strip()
+    )
 
 
 def _photo_card_source_key(rows: list[dict[str, str]]) -> tuple[tuple[str, str, str], ...]:

@@ -514,6 +514,13 @@ def test_member_quiz_flex_image_route_returns_square_jpeg(monkeypatch, tmp_path:
     assert response.content_type == "image/jpeg"
     with Image.open(BytesIO(response.data)) as image:
         assert image.size == (3, 3)
+    cache_files = list((tmp_path / "data" / "cache" / "play_zone" / "flex").glob("q001-*.jpg"))
+    assert len(cache_files) == 1
+
+    second_response = client.get("/play-zone/images/flex/q001.jpg")
+
+    assert second_response.status_code == 200
+    assert second_response.data == response.data
 
 
 def test_unknown_input_does_not_crash() -> None:

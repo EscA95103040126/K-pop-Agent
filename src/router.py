@@ -65,7 +65,7 @@ def _extract_artist(message: str) -> str:
     tokens = re.findall(r"[A-Za-z][A-Za-z0-9_-]{1,}", message)
     if tokens:
         return normalize_artist(tokens[0])
-    return "aespa"
+    return ""
 
 
 def _extract_period_months(message: str) -> int:

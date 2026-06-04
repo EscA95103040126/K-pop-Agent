@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import csv
+import logging
+import os
 import time
+from functools import lru_cache
 from pathlib import Path
 
 import requests
 
 from src.config import settings
 
+logger = logging.getLogger(__name__)
 
 DEFAULT_COMMENTS_CSV = settings.base_dir / "data" / "sample_comments.csv"
 REQUIRED_COLUMNS = ["artist", "song", "comment"]
@@ -18,6 +22,7 @@ ARTIST_ALIASES = {
 VALID_SENTIMENT_LABELS = {"positive", "neutral", "negative"}
 GEMINI_REQUEST_TIMEOUT_SECONDS = 10
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+SENTIMENT_CLASSIFY_DELAY_SECONDS = float(os.getenv("SENTIMENT_CLASSIFY_DELAY_SECONDS", "0"))
 GEMINI_SENTIMENT_PROMPT = """你是一個韓文情感分析專家。
 請判斷以下韓文評論的情感傾向，只能回答其中一個：positive / neutral / negative
 評論：{comment}
@@ -25,10 +30,21 @@ GEMINI_SENTIMENT_PROMPT = """你是一個韓文情感分析專家。
 
 
 def load_comments(csv_path: str | None = None) -> list[dict]:
-    path = Path(csv_path) if csv_path else DEFAULT_COMMENTS_CSV
-    if not path.is_absolute():
-        path = settings.base_dir / path
+    path = _resolve_comments_path(csv_path)
+    stat = path.stat()
+    return [dict(row) for row in _load_comments_cached(str(path), stat.st_mtime_ns)]
 
+
+def _resolve_comments_path(csv_path: str | None = None) -> Path:
+    path = Path(csv_path) if csv_path else DEFAULT_COMMENTS_CSV
+    if path.is_absolute():
+        return path
+    return settings.base_dir / path
+
+
+@lru_cache(maxsize=16)
+def _load_comments_cached(path_value: str, mtime_ns: int) -> tuple[dict, ...]:
+    path = Path(path_value)
     with path.open(encoding="utf-8", newline="") as file:
         reader = csv.DictReader(file)
         missing_columns = [
@@ -36,7 +52,7 @@ def load_comments(csv_path: str | None = None) -> list[dict]:
         ]
         if missing_columns:
             raise ValueError(f"CSV columns must be: {','.join(REQUIRED_COLUMNS)}")
-        return [dict(row) for row in reader]
+        return tuple(dict(row) for row in reader)
 
 
 def get_comments_by_artist(artist_name: str, csv_path: str | None = None) -> list[dict]:
@@ -89,6 +105,7 @@ def classify_comment(comment: str | None) -> str:
             data["candidates"][0]["content"]["parts"][0].get("text", "")
         ).strip().casefold()
     except Exception:
+        logger.exception("Gemini sentiment classification failed; using neutral label.")
         return "neutral"
 
     return label if label in VALID_SENTIMENT_LABELS else "neutral"
@@ -126,7 +143,8 @@ def analyze_sentiment_from_csv(artist_name: str, song: str | None = None) -> dic
                 label = classify_comment(text)
             except Exception:
                 label = "neutral"
-            time.sleep(0.5)
+            if SENTIMENT_CLASSIFY_DELAY_SECONDS > 0:
+                time.sleep(SENTIMENT_CLASSIFY_DELAY_SECONDS)
         if label not in counts:
             label = "neutral"
         counts[label] += 1

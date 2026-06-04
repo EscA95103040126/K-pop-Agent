@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import unicodedata
 from datetime import datetime, timedelta, timezone
@@ -16,6 +17,7 @@ from src.tools.chart_db import ChartHistoryRepository
 from src.tools.naver_news import NaverNewsClient
 from src.tools.sentiment import analyze_sentiment_from_csv
 
+logger = logging.getLogger(__name__)
 _SENTIMENT_FALLBACK: dict = {
     "sentiment": {"positive": 0, "neutral": 0, "negative": 0},
     "top_keywords": [],
@@ -42,6 +44,7 @@ ARTIST_CACHE_DIR = CACHE_DIR / "artists"
 CHART_CACHE_DIR = CACHE_DIR / "chart"
 WEEKLY_CHART_CACHE_PATH = CHART_CACHE_DIR / "weekly.json"
 CHART_CACHE_TTL = timedelta(hours=24)
+ARTIST_CACHE_TTL = timedelta(hours=24)
 LOCAL_SUMMARIES = {
     "aespa": "aespa 近期仍具高話題度，雖然榜單排名有短期波動，但作品聲量與粉絲討論維持穩定。",
     "IVE": "IVE 目前榜單表現進入調整期，但成員個人影響力與粉絲討論仍能支撐穩定曝光。",
@@ -137,6 +140,7 @@ class KpopAnalysisAgent:
             answer = data["candidates"][0]["content"]["parts"][0].get("text", "")
             answer = _clean_small_analysis_answer(answer)
         except Exception:
+            logger.exception("Gemini small-analysis request failed; using fallback.")
             return fallback
 
         return answer or fallback
@@ -151,7 +155,20 @@ class KpopAnalysisAgent:
     def get_artist_cache(self, artist: str, period_months: int = 3) -> dict[str, Any]:
         cache_path = artist_cache_path(artist)
         if cache_path.exists():
-            return json.loads(cache_path.read_text(encoding="utf-8"))
+            try:
+                payload = json.loads(cache_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                logger.warning(
+                    "Could not read artist cache; regenerating: %s",
+                    cache_path,
+                    exc_info=True,
+                )
+            else:
+                if (
+                    payload.get("period_months") == period_months
+                    and _is_fresh(payload.get("cached_at"), max_age=ARTIST_CACHE_TTL)
+                ):
+                    return payload
         return self.preload_artist_cache(artist=artist, period_months=period_months)
 
     def preload_artist_cache(self, artist: str, period_months: int = 3) -> dict[str, Any]:
@@ -245,6 +262,7 @@ class KpopAnalysisAgent:
                 return _SENTIMENT_FALLBACK
             return result
         except Exception:
+            logger.exception("Sentiment analysis failed for %s; using fallback.", artist_name)
             return _SENTIMENT_FALLBACK
 
     def _generate_insight(
@@ -290,6 +308,7 @@ class KpopAnalysisAgent:
             text = data["candidates"][0]["content"]["parts"][0].get("text", "")
             insight = _parse_insight_response(text)
         except Exception:
+            logger.exception("Gemini insight request failed; using fallback.")
             return fallback
 
         return insight or fallback
@@ -303,14 +322,24 @@ class KpopAnalysisAgent:
     ) -> str:
         if sentiment is None:
             sentiment = _SENTIMENT_FALLBACK
+        fallback = self._generate_mock_report(
+            intent=intent,
+            news=news,
+            chart=chart,
+            sentiment=sentiment,
+        )
         if self.config.use_gemini_mock:
-            return self._generate_mock_report(intent=intent, news=news, chart=chart, sentiment=sentiment)
+            return fallback
 
-        genai.configure(api_key=self.config.gemini_api_key)
-        model = genai.GenerativeModel(self.config.gemini_model)
-        prompt = self._build_prompt(intent=intent, news=news, chart=chart, sentiment=sentiment)
-        response = model.generate_content(prompt)
-        return (response.text or "").strip()
+        try:
+            genai.configure(api_key=self.config.gemini_api_key)
+            model = genai.GenerativeModel(self.config.gemini_model)
+            prompt = self._build_prompt(intent=intent, news=news, chart=chart, sentiment=sentiment)
+            response = model.generate_content(prompt)
+        except Exception:
+            logger.exception("Gemini report generation failed; using fallback.")
+            return fallback
+        return (response.text or "").strip() or fallback
 
     def _generate_mock_report(
         self,
