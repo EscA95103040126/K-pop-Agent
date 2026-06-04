@@ -101,7 +101,13 @@ PLAY_ZONE_SUBTITLE_COLOR = "#EAF4EE"
 PLAY_ZONE_TEXT_COLOR = "#3F554A"
 PLAY_ZONE_MUTED_TEXT_COLOR = "#4F665B"
 KPOP_RADAR_TRIGGERS = {
-    "使用說明",
+    "我的口袋",
+    "我的 K-pop 口袋",
+    "我的K-pop口袋",
+    "K-pop 口袋",
+    "K-pop口袋",
+    "KPOP口袋",
+    "口袋",
     "我的 K-pop 雷達",
     "我的K-pop雷達",
     "K-pop 雷達",
@@ -1520,7 +1526,7 @@ def _kpop_radar_response(message: str, user_id: str = "analyze-user") -> dict:
     except Exception:
         logger.exception("K-pop Radar response failed.")
         return {
-            "report": "我的 K-pop 雷達暫時連不上資料庫，晚點再試一次。",
+            "report": "我的K-pop 口袋暫時連不上資料庫，晚點再試一次。",
             "flex": None,
         }
 
@@ -1534,7 +1540,7 @@ def _kpop_radar_home_response(user_id: str) -> dict:
     preferred_gender = radar_repo.get_preference(user_id)
     counts = radar_repo.saved_counts(user_id)
     return {
-        "report": "我的 K-pop 雷達",
+        "report": "我的K-pop 口袋",
         "flex": _build_kpop_radar_flex_contents(preferred_gender, counts),
     }
 
@@ -1569,19 +1575,19 @@ def _kpop_radar_save_item_response(user_id: str, item_id: str) -> dict:
         preferred_gender = radar_repo.get_preference(user_id)
         counts = radar_repo.saved_counts(user_id)
         return {
-            "report": "已加入你的 K-pop 雷達收藏庫 ⭐",
+            "report": "已加入你的 K-pop 口袋 ⭐",
             "flex": _build_kpop_radar_flex_contents(preferred_gender, counts),
         }
     if result.duplicate:
         preferred_gender = radar_repo.get_preference(user_id)
         counts = radar_repo.saved_counts(user_id)
         return {
-            "report": "這個內容已經在你的收藏庫裡了 ⭐",
+            "report": "這個內容已經在你的口袋裡了 ⭐",
             "flex": _build_kpop_radar_flex_contents(preferred_gender, counts),
         }
     if result.status == "missing":
         return {"report": "找不到這個 K-pop 內容，可能已被移除。", "flex": None}
-    return {"report": "K-pop 雷達尚未設定 Supabase，暫時無法收藏。", "flex": None}
+    return {"report": "K-pop 口袋尚未設定 Supabase，暫時無法收藏。", "flex": None}
 
 
 def _build_kpop_radar_flex_contents(
@@ -1606,7 +1612,7 @@ def _build_kpop_radar_flex_contents(
                 },
                 {
                     "type": "text",
-                    "text": "我的 K-pop 雷達",
+                    "text": "我的K-pop 口袋",
                     "size": "xl",
                     "weight": "bold",
                     "color": "#FFFFFF",
@@ -2143,7 +2149,7 @@ def _fixed_command_help_text() -> str:
         "3. 本週榜單\n"
         "4. 互動專區\n"
         "5. 每日一首\n"
-        "6. 我的 K-pop 雷達\n\n"
+        "6. 我的K-pop 口袋\n\n"
         "請用「分析 藝人名」取得完整報告。"
     )
 
@@ -2151,7 +2157,7 @@ def _fixed_command_help_text() -> str:
 def _play_zone_placeholder_text(message: str) -> str:
     feature = message.strip()
     if feature == "我的雷達":
-        feature = "我的 K-pop 雷達"
+        feature = "我的K-pop 口袋"
     return (
         f"{feature}入口已建立。\n"
         "下一步會接題庫與本地 JSON 結果表，讓它變成真正可玩的互動流程。"
@@ -3928,7 +3934,7 @@ def _build_kpop_radar_save_prompt_flex_contents(
 ) -> dict:
     item_id = str(recommendation.get("id") or "")
     item_type = str(recommendation.get("item_type") or "mv")
-    label = "收藏至雷達"
+    label = "收藏至口袋"
     contents = [
         {
             "type": "text",
@@ -3955,7 +3961,7 @@ def _build_kpop_radar_save_prompt_flex_contents(
     }
 
 
-def _kpop_radar_save_button(item_id: str, label: str = "收藏至雷達") -> dict:
+def _kpop_radar_save_button(item_id: str, label: str = "收藏至口袋") -> dict:
     return {
         "type": "button",
         "style": "primary",
@@ -4281,7 +4287,7 @@ if line_handler is not None and MessageEvent is not None and TextMessageContent 
                 elif response["flex"] is not None:
                     reply_message = _build_line_flex_message(
                         response["flex"],
-                        alt_text="我的 K-pop 雷達",
+                        alt_text="我的K-pop 口袋",
                     )
                 else:
                     reply_message = TextMessage(text=fallback_text)

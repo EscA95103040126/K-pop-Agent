@@ -101,8 +101,8 @@ def test_kpop_radar_home_flex_uses_current_counts(monkeypatch) -> None:
     payload = response.get_json()
 
     assert response.status_code == 200
-    assert payload["report"] == "我的 K-pop 雷達"
-    assert payload["flex"]["header"]["contents"][1]["text"] == "我的 K-pop 雷達"
+    assert payload["report"] == "我的K-pop 口袋"
+    assert payload["flex"]["header"]["contents"][1]["text"] == "我的K-pop 口袋"
     assert payload["flex"]["header"]["backgroundColor"] == "#B76E61"
     assert payload["flex"]["body"]["backgroundColor"] == "#FFF6F0"
     info_box = payload["flex"]["body"]["contents"][1]["contents"]
@@ -149,9 +149,9 @@ def test_kpop_radar_save_item_reports_duplicate(monkeypatch) -> None:
         },
     ).get_json()
 
-    assert first["report"] == "已加入你的 K-pop 雷達收藏庫 ⭐"
-    assert first["flex"]["header"]["contents"][1]["text"] == "我的 K-pop 雷達"
-    assert second["report"] == "這個內容已經在你的收藏庫裡了 ⭐"
+    assert first["report"] == "已加入你的 K-pop 口袋 ⭐"
+    assert first["flex"]["header"]["contents"][1]["text"] == "我的K-pop 口袋"
+    assert second["report"] == "這個內容已經在你的口袋裡了 ⭐"
 
 
 def test_daily_mv_supabase_response_includes_save_postback(monkeypatch) -> None:
@@ -202,7 +202,7 @@ def test_daily_fancam_response_includes_save_to_radar(monkeypatch, tmp_path) -> 
         "每日經典舞台",
     ]
     save_actions = _top_level_button_actions(payload["flex"])
-    assert save_actions[-1]["label"] == "收藏至雷達"
+    assert save_actions[-1]["label"] == "收藏至口袋"
     assert save_actions[-1]["data"] == "action=save_item&item_id=00000000-0000-0000-0000-000000000002"
 
 
@@ -258,7 +258,7 @@ def test_photo_card_response_includes_save_to_radar(monkeypatch, tmp_path) -> No
         for content in payload["flex"]["body"]["contents"]
         if content["type"] == "button"
     ]
-    assert actions[0]["label"] == "收藏至雷達"
+    assert actions[0]["label"] == "收藏至口袋"
     assert actions[0]["data"] == "action=save_item&item_id=00000000-0000-0000-0000-000000000003"
 
 

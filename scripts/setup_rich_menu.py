@@ -10,6 +10,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_IMAGE_PATH = PROJECT_ROOT / "data" / "rich_menu.png"
 RICH_MENU_SIZE = (2500, 1686)
 BACKGROUND_COLOR = "#FAF7F4"
 DIVIDER_COLOR = "#E8D5C4"
@@ -26,15 +27,25 @@ def main() -> None:
         action="store_true",
         help="Generate the rich menu image and payload without calling LINE APIs.",
     )
+    parser.add_argument(
+        "--image",
+        type=Path,
+        default=None,
+        help=(
+            "Path to a custom rich menu PNG. "
+            f"Defaults to {DEFAULT_IMAGE_PATH} if it exists, "
+            "otherwise generates the image programmatically."
+        ),
+    )
     args = parser.parse_args()
 
     load_dotenv(PROJECT_ROOT / ".env")
     token = _line_access_token()
-    image_path = _create_rich_menu_image()
+    image_path = _resolve_image(args.image)
     payload = _rich_menu_payload()
 
     if args.dry_run:
-        print(f"Dry run OK. Generated image: {image_path}")
+        print(f"Dry run OK. Image: {image_path}")
         print(f"Rich menu name: {payload['name']}")
         return
 
@@ -45,6 +56,30 @@ def main() -> None:
     _upload_rich_menu_image(token, rich_menu_id, image_path)
     _set_default_rich_menu(token, rich_menu_id)
     print(f"Default rich menu set: {rich_menu_id}")
+
+
+def _resolve_image(custom_path: Path | None) -> Path:
+    """Return the image to upload. Priority: --image arg > data/rich_menu.png > generated."""
+    if custom_path is not None:
+        if not custom_path.exists():
+            raise FileNotFoundError(f"Custom image not found: {custom_path}")
+        return _ensure_line_size(custom_path)
+    if DEFAULT_IMAGE_PATH.exists():
+        print(f"Using custom image: {DEFAULT_IMAGE_PATH}")
+        return _ensure_line_size(DEFAULT_IMAGE_PATH)
+    print("No custom image found — generating image programmatically.")
+    return _create_rich_menu_image()
+
+
+def _ensure_line_size(src: Path) -> Path:
+    """Resize image to RICH_MENU_SIZE if needed and return path to a temp PNG."""
+    img = Image.open(src).convert("RGB")
+    if img.size != RICH_MENU_SIZE:
+        print(f"Resizing {img.size} → {RICH_MENU_SIZE}")
+        img = img.resize(RICH_MENU_SIZE, Image.LANCZOS)
+    output_path = Path(tempfile.gettempdir()) / "kpop_agent_rich_menu.png"
+    img.save(output_path, "PNG")
+    return output_path
 
 
 def _line_access_token() -> str:
@@ -62,13 +97,13 @@ def _rich_menu_payload() -> dict:
         (2, 0, "互動專區"),
         (0, 1, "每日一首"),
         (1, 1, "AI 入坑"),
-        (2, 1, "使用說明"),
+        (2, 1, "我的口袋"),
     ]
     return {
         "size": {"width": RICH_MENU_SIZE[0], "height": RICH_MENU_SIZE[1]},
         "selected": True,
         "name": "K-pop Agent Rich Menu",
-        "chatBarText": "K-pop Agent",
+        "chatBarText": "功能選單",
         "areas": [
             _rich_menu_area(column, row, text, button_width, button_height)
             for column, row, text in items
