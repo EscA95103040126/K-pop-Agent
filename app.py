@@ -1115,7 +1115,29 @@ def _build_daily_kpop_flex_contents() -> dict:
     )
 
 
-def _build_daily_kpop_redraw_flex_contents() -> dict:
+def _build_daily_kpop_redraw_flex_contents(save_item_id: str = "") -> dict:
+    body_contents = [
+        {
+            "type": "text",
+            "text": "想再抽哪一種 K-pop 推薦？",
+            "size": "xs",
+            "color": "#314B60",
+            "wrap": True,
+        },
+        {
+            "type": "box",
+            "layout": "horizontal",
+            "spacing": "sm",
+            "contents": [
+                _daily_redraw_button("MV", "每日 MV"),
+                _daily_redraw_button("直拍", "每日直拍"),
+                _daily_redraw_button("舞台", "每日經典舞台"),
+            ],
+        },
+    ]
+    if save_item_id:
+        body_contents.append(_kpop_radar_save_button(save_item_id))
+
     return {
         "type": "bubble",
         "size": "kilo",
@@ -1140,25 +1162,7 @@ def _build_daily_kpop_redraw_flex_contents() -> dict:
             "backgroundColor": "#F4F8FC",
             "paddingAll": "14px",
             "spacing": "sm",
-            "contents": [
-                {
-                    "type": "text",
-                    "text": "想再抽哪一種 K-pop 推薦？",
-                    "size": "xs",
-                    "color": "#314B60",
-                    "wrap": True,
-                },
-                {
-                    "type": "box",
-                    "layout": "horizontal",
-                    "spacing": "sm",
-                    "contents": [
-                        _daily_redraw_button("MV", "每日 MV"),
-                        _daily_redraw_button("直拍", "每日直拍"),
-                        _daily_redraw_button("舞台", "每日經典舞台"),
-                    ],
-                },
-            ],
+            "contents": body_contents,
         },
     }
 
@@ -3697,11 +3701,8 @@ def _daily_kpop_response(message: str, user_id: str = "analyze-user") -> dict:
             if recommendation:
                 return {
                     "report": _format_kpop_item_recommendation(category, recommendation),
-                    "flex": _build_kpop_radar_save_prompt_flex_contents(
-                        recommendation,
-                        category,
-                        redraw_label="再抽 MV",
-                        redraw_text="每日 MV",
+                    "flex": _build_daily_kpop_redraw_flex_contents(
+                        save_item_id=str(recommendation.get("id") or "")
                     ),
                 }
             return {
@@ -3718,6 +3719,7 @@ def _daily_kpop_response(message: str, user_id: str = "analyze-user") -> dict:
                 url=recommendation.get("url", ""),
                 redraw_label=f"再抽{category}",
                 redraw_text=_daily_kpop_redraw_text(category),
+                daily_redraw=True,
                 fallback_flex=_build_daily_kpop_redraw_flex_contents(),
             ),
         }
@@ -3894,6 +3896,7 @@ def _build_recommendation_action_flex_contents(
     url: str,
     redraw_label: str,
     redraw_text: str,
+    daily_redraw: bool = False,
     fallback_flex: dict | None = None,
 ) -> dict:
     item = None
@@ -3903,6 +3906,10 @@ def _build_recommendation_action_flex_contents(
         except Exception:
             logger.exception("Could not look up K-pop Radar item for save button.")
     if item:
+        if daily_redraw:
+            return _build_daily_kpop_redraw_flex_contents(
+                save_item_id=str(item.get("id") or "")
+            )
         return _build_kpop_radar_save_prompt_flex_contents(
             item,
             _kpop_radar_item_type_label(item_type),
@@ -3932,19 +3939,7 @@ def _build_kpop_radar_save_prompt_flex_contents(
         },
     ]
     if item_id:
-        contents.append(
-            {
-                "type": "button",
-                "style": "primary",
-                "height": "sm",
-                "color": KPOP_RADAR_ACCENT_COLOR,
-                "action": {
-                    "type": "postback",
-                    "label": label,
-                    "data": f"action=save_item&item_id={item_id}",
-                },
-            }
-        )
+        contents.append(_kpop_radar_save_button(item_id, label=label))
     contents.append(_single_redraw_button(redraw_label, redraw_text))
     return {
         "type": "bubble",
@@ -3956,6 +3951,20 @@ def _build_kpop_radar_save_prompt_flex_contents(
             "paddingAll": "14px",
             "spacing": "sm",
             "contents": contents,
+        },
+    }
+
+
+def _kpop_radar_save_button(item_id: str, label: str = "收藏至雷達") -> dict:
+    return {
+        "type": "button",
+        "style": "primary",
+        "height": "sm",
+        "color": KPOP_RADAR_ACCENT_COLOR,
+        "action": {
+            "type": "postback",
+            "label": label,
+            "data": f"action=save_item&item_id={item_id}",
         },
     }
 

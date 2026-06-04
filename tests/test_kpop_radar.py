@@ -166,12 +166,14 @@ def test_daily_mv_supabase_response_includes_save_postback(monkeypatch) -> None:
     payload = response.get_json()
 
     assert payload["report"].startswith("🎵 今日推薦 MV")
-    actions = [
-        content["action"]
-        for content in payload["flex"]["body"]["contents"]
-        if content["type"] == "button"
+    redraw_actions = _daily_redraw_actions(payload["flex"])
+    assert [action["text"] for action in redraw_actions] == [
+        "每日 MV",
+        "每日直拍",
+        "每日經典舞台",
     ]
-    assert actions[0]["data"].startswith("action=save_item&item_id=")
+    save_actions = _top_level_button_actions(payload["flex"])
+    assert save_actions[-1]["data"].startswith("action=save_item&item_id=")
 
 
 def test_daily_fancam_response_includes_save_to_radar(monkeypatch, tmp_path) -> None:
@@ -193,14 +195,43 @@ def test_daily_fancam_response_includes_save_to_radar(monkeypatch, tmp_path) -> 
     ).get_json()
 
     assert payload["report"].startswith("🎵 今日推薦 直拍")
-    actions = [
-        content["action"]
-        for content in payload["flex"]["body"]["contents"]
-        if content["type"] == "button"
+    redraw_actions = _daily_redraw_actions(payload["flex"])
+    assert [action["text"] for action in redraw_actions] == [
+        "每日 MV",
+        "每日直拍",
+        "每日經典舞台",
     ]
-    assert actions[0]["label"] == "收藏至雷達"
-    assert actions[0]["data"] == "action=save_item&item_id=00000000-0000-0000-0000-000000000002"
-    assert actions[1]["text"] == "每日直拍"
+    save_actions = _top_level_button_actions(payload["flex"])
+    assert save_actions[-1]["label"] == "收藏至雷達"
+    assert save_actions[-1]["data"] == "action=save_item&item_id=00000000-0000-0000-0000-000000000002"
+
+
+def test_daily_stage_response_keeps_redraw_without_save(monkeypatch, tmp_path) -> None:
+    play_zone_dir = tmp_path / "data" / "play_zone"
+    play_zone_dir.mkdir(parents=True)
+    (play_zone_dir / "daily_stage.csv").write_text(
+        "artist,title,url\nNMIXX,DASH,https://example.com/nmixx-stage\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(app_module, "settings", type("Settings", (), {"base_dir": tmp_path})())
+    monkeypatch.setattr(app_module, "radar_repo", FakeRadarRepository())
+    app_module.daily_kpop_queues.clear()
+    app_module.daily_kpop_source_keys.clear()
+    client = app.test_client()
+
+    payload = client.post(
+        "/analyze",
+        json={"message": "每日經典舞台", "user_id": "stage-user"},
+    ).get_json()
+
+    assert payload["report"].startswith("🎵 今日推薦 經典舞台")
+    redraw_actions = _daily_redraw_actions(payload["flex"])
+    assert [action["text"] for action in redraw_actions] == [
+        "每日 MV",
+        "每日直拍",
+        "每日經典舞台",
+    ]
+    assert _top_level_button_actions(payload["flex"]) == []
 
 
 def test_photo_card_response_includes_save_to_radar(monkeypatch, tmp_path) -> None:
@@ -229,3 +260,20 @@ def test_photo_card_response_includes_save_to_radar(monkeypatch, tmp_path) -> No
     ]
     assert actions[0]["label"] == "收藏至雷達"
     assert actions[0]["data"] == "action=save_item&item_id=00000000-0000-0000-0000-000000000003"
+
+
+def _daily_redraw_actions(flex: dict) -> list[dict]:
+    row = next(
+        content
+        for content in flex["body"]["contents"]
+        if content["type"] == "box" and content["layout"] == "horizontal"
+    )
+    return [button["action"] for button in row["contents"]]
+
+
+def _top_level_button_actions(flex: dict) -> list[dict]:
+    return [
+        content["action"]
+        for content in flex["body"]["contents"]
+        if content["type"] == "button"
+    ]
