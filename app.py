@@ -1779,10 +1779,13 @@ def _format_kpop_radar_saved_items(
         artist = str(item.get("artist") or "").strip()
         title = str(item.get("title") or "").strip()
         member = str(item.get("member") or "").strip()
+        url = str(item.get("url") or "").strip()
         name = f"{artist} - {title}" if artist else title
         if member:
             name = f"{name} ({member})"
         lines.append(f"{index}. {name}")
+        if url:
+            lines.append(f"   🔗 {url}")
     return "\n".join(lines)
 
 
