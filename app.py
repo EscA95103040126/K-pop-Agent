@@ -386,9 +386,7 @@ def analyze() -> tuple[dict, int]:
                 "type": "weekly_chart",
                 "cached_at": chart_cache["cached_at"],
             },
-            "flex": _build_weekly_chart_history_flex_contents(
-                current_chart_date=chart_cache.get("chart", {}).get("chart_date", ""),
-            ),
+            "flex": None,
         }
     elif analysis_artist and (artist or _is_full_artist_report_request(message)):
         artist_cache = agent.get_artist_cache(
@@ -1441,10 +1439,12 @@ def _selection_page_button(
     }
 
 
-def _build_weekly_chart_history_flex_contents(
+def _build_weekly_chart_history_quick_reply(
     current_chart_date: str = "",
-    limit: int = 6,
-) -> dict | None:
+    limit: int = 12,
+):
+    if QuickReply is None or QuickReplyItem is None or MessageAction is None:
+        return None
     chart_dates = [
         chart_date
         for chart_date in agent.list_weekly_chart_dates(limit=limit + 1, min_items=1)
@@ -1452,60 +1452,17 @@ def _build_weekly_chart_history_flex_contents(
     ][:limit]
     if not chart_dates:
         return None
-
-    return {
-        "type": "bubble",
-        "size": "mega",
-        "header": {
-            "type": "box",
-            "layout": "vertical",
-            "backgroundColor": "#8B5E52",
-            "paddingAll": "16px",
-            "contents": [
-                {
-                    "type": "text",
-                    "text": "歷史週次",
-                    "weight": "bold",
-                    "size": "lg",
-                    "color": "#FFFFFF",
-                },
-                {
-                    "type": "text",
-                    "text": "點選週次查看該週 Bugs 前 10",
-                    "size": "xs",
-                    "color": "#FDEBD8",
-                    "margin": "sm",
-                },
-            ],
-        },
-        "body": {
-            "type": "box",
-            "layout": "vertical",
-            "backgroundColor": "#FAF7F4",
-            "spacing": "sm",
-            "paddingAll": "14px",
-            "contents": [
-                _weekly_chart_history_button(chart_date)
-                for chart_date in chart_dates
-            ],
-        },
-    }
-
-
-def _weekly_chart_history_button(chart_date: str) -> dict:
-    label = _weekly_chart_date_label(chart_date)
-    return {
-        "type": "button",
-        "height": "sm",
-        "style": "secondary",
-        "color": "#E8D5C4",
-        "action": {
-            "type": "postback",
-            "label": label,
-            "data": f"{HISTORICAL_WEEKLY_CHART_PREFIX}{chart_date}",
-            "displayText": f"{label} 週榜",
-        },
-    }
+    return QuickReply(
+        items=[
+            QuickReplyItem(
+                action=MessageAction(
+                    label=_weekly_chart_date_label(chart_date),
+                    text=f"{HISTORICAL_WEEKLY_CHART_PREFIX}{chart_date}",
+                )
+            )
+            for chart_date in chart_dates
+        ]
+    )
 
 
 def _build_help_message():
@@ -3832,19 +3789,14 @@ if line_handler is not None and MessageEvent is not None and TextMessageContent 
                 elif route_message(user_text).name == "weekly_chart":
                     chart_cache = agent.get_weekly_chart_cache()
                     report = chart_cache["report"]
-                    reply_message = _build_line_reply_message(report)
                     fallback_text = fit_line_text(report)
-                    history_flex = _build_weekly_chart_history_flex_contents(
+                    history_qr = _build_weekly_chart_history_quick_reply(
                         current_chart_date=chart_cache.get("chart", {}).get("chart_date", ""),
                     )
-                    if history_flex is not None:
-                        reply_messages = [
-                            reply_message,
-                            _build_line_flex_message(
-                                history_flex,
-                                alt_text="歷史週次",
-                            ),
-                        ]
+                    reply_message = TextMessage(
+                        text=fallback_text,
+                        quickReply=history_qr,
+                    )
                 elif _is_full_artist_report_request(user_text):
                     intent = route_message(user_text)
                     artist_cache = agent.get_artist_cache(

@@ -1050,32 +1050,28 @@ def test_historical_weekly_chart_command_returns_selected_week() -> None:
     assert "榜單日期：2026-05-11" in payload["report"]
 
 
-def test_weekly_chart_history_flex_excludes_current_week(monkeypatch) -> None:
+def test_weekly_chart_history_quick_reply_excludes_current_week(monkeypatch) -> None:
     monkeypatch.setattr(
         app_module,
         "agent",
         SimpleNamespace(
-            list_weekly_chart_dates=lambda limit=8, min_items=1: [
+            list_weekly_chart_dates=lambda limit=13, min_items=1: [
                 "2026-05-18",
                 "2026-05-11",
             ]
         ),
     )
 
-    flex = app_module._build_weekly_chart_history_flex_contents(
+    qr = app_module._build_weekly_chart_history_quick_reply(
         current_chart_date="2026-05-18"
     )
 
-    assert flex is not None
-    actions = [item["action"] for item in flex["body"]["contents"]]
-    assert actions == [
-        {
-            "type": "postback",
-            "label": "5/11-5/17",
-            "data": "歷史週榜:2026-05-11",
-            "displayText": "5/11-5/17 週榜",
-        }
-    ]
+    assert qr is not None
+    items = qr.items
+    assert len(items) == 1
+    action = items[0].action
+    assert action.label == "5/11-5/17"
+    assert action.text == "歷史週榜:2026-05-11"
 
 
 def test_bias_radar_session_prunes_expired_session(monkeypatch) -> None:
