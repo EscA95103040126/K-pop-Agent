@@ -200,6 +200,7 @@ def test_daily_fancam_response_includes_save_to_radar(monkeypatch, tmp_path) -> 
     ]
     assert actions[0]["label"] == "收藏至雷達"
     assert actions[0]["data"] == "action=save_item&item_id=00000000-0000-0000-0000-000000000002"
+    assert actions[1]["text"] == "每日直拍"
 
 
 def test_photo_card_response_includes_save_to_radar(monkeypatch, tmp_path) -> None:

@@ -3717,7 +3717,7 @@ def _daily_kpop_response(message: str, user_id: str = "analyze-user") -> dict:
                 item_type=_daily_kpop_item_type(category),
                 url=recommendation.get("url", ""),
                 redraw_label=f"再抽{category}",
-                redraw_text=f"每日 {category}",
+                redraw_text=_daily_kpop_redraw_text(category),
                 fallback_flex=_build_daily_kpop_redraw_flex_contents(),
             ),
         }
@@ -3756,6 +3756,14 @@ def _daily_kpop_item_type(category: str) -> str:
     if category == "MV":
         return "mv"
     return ""
+
+
+def _daily_kpop_redraw_text(category: str) -> str:
+    if category == "直拍":
+        return "每日直拍"
+    if category == "經典舞台":
+        return "每日 經典舞台"
+    return "每日 MV"
 
 
 def _load_daily_kpop_recommendation(category: str) -> dict[str, str] | None:
