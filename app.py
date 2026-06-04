@@ -1820,7 +1820,7 @@ def _build_help_message():
 def _build_welcome_message():
     return TextMessage(
         text=(
-            "🌸 歡迎來到 KPOP 補給站！\n"
+            "🇰🇷 歡迎來到 KPOP 補給站！🎶\n"
             "從入坑到深陷，我都陪你 ✨\n"
             "\n"
             "你可以這樣玩 ↓\n"
