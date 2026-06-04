@@ -1456,7 +1456,7 @@ def _build_weekly_chart_history_quick_reply(
         items=[
             QuickReplyItem(
                 action=MessageAction(
-                    label=_weekly_chart_date_label(chart_date),
+                    label=f"📅 {_weekly_chart_date_label(chart_date)}",
                     text=f"{HISTORICAL_WEEKLY_CHART_PREFIX}{chart_date}",
                 )
             )

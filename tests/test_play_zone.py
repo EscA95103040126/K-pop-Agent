@@ -1070,7 +1070,7 @@ def test_weekly_chart_history_quick_reply_excludes_current_week(monkeypatch) -> 
     items = qr.items
     assert len(items) == 1
     action = items[0].action
-    assert action.label == "5/11-5/17"
+    assert action.label == "📅 5/11-5/17"
     assert action.text == "歷史週榜:2026-05-11"
 
 
