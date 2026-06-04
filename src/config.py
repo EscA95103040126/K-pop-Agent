@@ -32,6 +32,10 @@ class Settings:
     youtube_api_key: str | None = os.getenv("YOUTUBE_API_KEY") or None
     line_channel_access_token: str | None = os.getenv("LINE_CHANNEL_ACCESS_TOKEN") or None
     line_channel_secret: str | None = os.getenv("LINE_CHANNEL_SECRET") or None
+    supabase_url: str | None = os.getenv("SUPABASE_URL") or None
+    supabase_service_role_key: str | None = (
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY") or None
+    )
     port: int = int(os.getenv("PORT", "5000"))
 
     @property

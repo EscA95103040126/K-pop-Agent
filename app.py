@@ -12,7 +12,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from time import monotonic, time
 from typing import Callable
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote
 
 import requests
 from flask import Flask, abort, jsonify, request, send_file, send_from_directory
@@ -26,6 +26,7 @@ from src.agent import (
 from src.config import settings
 from src.router import ARTIST_PATTERNS, route_message
 from src.tools.bugs_chart import fetch_bugs_weekly_chart
+from src.tools.kpop_radar import KpopRadarRepository
 from src.tools.naver_news import NaverNewsClient
 from src.utils.response_formatter import fit_line_text
 
@@ -39,6 +40,7 @@ try:
         FlexMessage,
         MessageAction,
         MessagingApi,
+        PostbackAction,
         QuickReply,
         QuickReplyItem,
         ReplyMessageRequest,
@@ -56,6 +58,7 @@ except ImportError:  # pragma: no cover - lets local mock mode run without LINE 
     FlexMessage = None
     MessageAction = None
     MessagingApi = None
+    PostbackAction = None
     QuickReply = None
     QuickReplyItem = None
     ReplyMessageRequest = None
@@ -69,6 +72,7 @@ except ImportError:  # pragma: no cover - lets local mock mode run without LINE 
 
 app = Flask(__name__)
 agent = KpopAnalysisAgent()
+radar_repo = KpopRadarRepository(settings)
 logger = logging.getLogger(__name__)
 daily_kpop_queues: dict[str, list[dict[str, str]]] = {}
 daily_kpop_source_keys: dict[str, tuple[tuple[str, str, str, str], ...]] = {}
@@ -96,6 +100,37 @@ PLAY_ZONE_BODY_COLOR = "#F7FAF8"
 PLAY_ZONE_SUBTITLE_COLOR = "#EAF4EE"
 PLAY_ZONE_TEXT_COLOR = "#3F554A"
 PLAY_ZONE_MUTED_TEXT_COLOR = "#4F665B"
+KPOP_RADAR_TRIGGERS = {
+    "使用說明",
+    "我的 K-pop 雷達",
+    "我的K-pop雷達",
+    "K-pop 雷達",
+    "K-pop雷達",
+    "KPOP雷達",
+    "我的收藏",
+    "收藏庫",
+}
+KPOP_RADAR_ACTIONS = {
+    "open_radar",
+    "view_saved",
+    "open_pref",
+    "set_pref",
+    "save_item",
+}
+KPOP_RADAR_ACCENT_COLOR = "#8B5CF6"
+KPOP_RADAR_BODY_COLOR = "#F8F7FF"
+KPOP_RADAR_TEXT_COLOR = "#3F365F"
+KPOP_RADAR_MUTED_TEXT_COLOR = "#615978"
+KPOP_RADAR_ITEM_LABELS = {
+    "mv": ("🎬", "MV", "個"),
+    "fancam": ("🎥", "直拍", "個"),
+    "photo": ("🖼️", "照片", "張"),
+}
+KPOP_RADAR_GENDER_LABELS = {
+    "girl_group": "女團",
+    "boy_group": "男團",
+    "all": "都可以",
+}
 AI_CURATOR_ENTRY_TRIGGERS = {
     "我的雷達",
     "雷達",
@@ -284,6 +319,7 @@ def health() -> tuple[dict, int]:
         "naver_mode": _naver_mode(),
         "gemini_mode": _mode(settings.use_gemini_mock),
         "line_mode": _mode(settings.use_line_mock),
+        "supabase_mode": "real" if radar_repo.enabled else "disabled",
     }, 200 if status == "ok" else 503
 
 
@@ -324,7 +360,9 @@ def analyze() -> tuple[dict, int]:
     intent = route_message(message)
     artist_from_payload = route_message(f"分析 {artist}").artist if artist else ""
     analysis_artist = intent.artist or artist_from_payload
-    if _is_play_zone_request(message):
+    if _is_kpop_radar_request(message):
+        response = _kpop_radar_response(message, user_id=user_id)
+    elif _is_play_zone_request(message):
         response = {
             "report": "K-pop Play Zone",
             "flex": _build_play_zone_flex_contents(),
@@ -353,11 +391,7 @@ def analyze() -> tuple[dict, int]:
             "flex": _build_daily_kpop_flex_contents(),
         }
     elif _is_daily_kpop_category_request(message):
-        report = _daily_kpop_placeholder_text(message)
-        response = {
-            "report": report,
-            "flex": _build_daily_kpop_redraw_flex_contents(),
-        }
+        response = _daily_kpop_response(message, user_id=user_id)
     elif _is_photo_card_request(message):
         report = _photo_card_placeholder_text()
         response = {
@@ -1465,6 +1499,284 @@ def _build_weekly_chart_history_quick_reply(
     )
 
 
+def _kpop_radar_response(message: str, user_id: str = "analyze-user") -> dict:
+    action = _kpop_radar_action(message)
+    try:
+        _ensure_kpop_radar_user(user_id)
+        if action == "view_saved":
+            item_type = _kpop_radar_param(message, "type", "mv")
+            return _kpop_radar_saved_response(user_id, item_type)
+        if action == "open_pref":
+            return {
+                "report": "請選擇你的每日 MV 推薦偏好。",
+                "flex": _build_kpop_radar_preference_flex_contents(),
+            }
+        if action == "set_pref":
+            preferred_gender = _kpop_radar_param(message, "gender", "all")
+            return _kpop_radar_set_preference_response(user_id, preferred_gender)
+        if action == "save_item":
+            item_id = _kpop_radar_param(message, "item_id", "")
+            return _kpop_radar_save_item_response(user_id, item_id)
+        return _kpop_radar_home_response(user_id)
+    except Exception:
+        logger.exception("K-pop Radar response failed.")
+        return {
+            "report": "我的 K-pop 雷達暫時連不上資料庫，晚點再試一次。",
+            "flex": None,
+        }
+
+
+def _ensure_kpop_radar_user(user_id: str) -> None:
+    if user_id:
+        radar_repo.ensure_user(user_id)
+
+
+def _kpop_radar_home_response(user_id: str) -> dict:
+    preferred_gender = radar_repo.get_preference(user_id)
+    counts = radar_repo.saved_counts(user_id)
+    return {
+        "report": "我的 K-pop 雷達",
+        "flex": _build_kpop_radar_flex_contents(preferred_gender, counts),
+    }
+
+
+def _kpop_radar_saved_response(user_id: str, item_type: str) -> dict:
+    if item_type not in KPOP_RADAR_ITEM_LABELS:
+        item_type = "mv"
+    items = radar_repo.list_saved_items(user_id, item_type)
+    return {
+        "report": _format_kpop_radar_saved_items(item_type, items),
+        "flex": None,
+    }
+
+
+def _kpop_radar_set_preference_response(user_id: str, preferred_gender: str) -> dict:
+    if preferred_gender not in KPOP_RADAR_GENDER_LABELS:
+        preferred_gender = "all"
+    updated = radar_repo.upsert_preference(user_id, preferred_gender)
+    counts = radar_repo.saved_counts(user_id)
+    label = KPOP_RADAR_GENDER_LABELS.get(updated, "都可以")
+    return {
+        "report": f"已更新每日 MV 推薦偏好：{label}",
+        "flex": _build_kpop_radar_flex_contents(updated, counts),
+    }
+
+
+def _kpop_radar_save_item_response(user_id: str, item_id: str) -> dict:
+    if not item_id:
+        return {"report": "找不到要收藏的內容。", "flex": None}
+    result = radar_repo.save_item(user_id, item_id)
+    if result.saved:
+        return {
+            "report": "已加入你的 K-pop 雷達收藏庫 ⭐",
+            "flex": None,
+        }
+    if result.duplicate:
+        return {
+            "report": "這個內容已經在你的收藏庫裡了 ⭐",
+            "flex": None,
+        }
+    if result.status == "missing":
+        return {"report": "找不到這個 K-pop 內容，可能已被移除。", "flex": None}
+    return {"report": "K-pop 雷達尚未設定 Supabase，暫時無法收藏。", "flex": None}
+
+
+def _build_kpop_radar_flex_contents(
+    preferred_gender: str,
+    counts: dict[str, int],
+) -> dict:
+    preference_label = KPOP_RADAR_GENDER_LABELS.get(preferred_gender, "都可以")
+    return {
+        "type": "bubble",
+        "size": "mega",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": KPOP_RADAR_ACCENT_COLOR,
+            "paddingAll": "18px",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "收藏庫",
+                    "size": "xs",
+                    "color": "#EFE9FF",
+                },
+                {
+                    "type": "text",
+                    "text": "我的 K-pop 雷達",
+                    "size": "xl",
+                    "weight": "bold",
+                    "color": "#FFFFFF",
+                    "margin": "sm",
+                },
+            ],
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": KPOP_RADAR_BODY_COLOR,
+            "paddingAll": "18px",
+            "spacing": "md",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "收藏 MV、直拍與照片，建立你的專屬 K-pop 收藏庫。",
+                    "size": "sm",
+                    "color": KPOP_RADAR_TEXT_COLOR,
+                    "wrap": True,
+                },
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "spacing": "xs",
+                    "paddingAll": "12px",
+                    "backgroundColor": "#FFFFFF",
+                    "cornerRadius": "8px",
+                    "contents": [
+                        _kpop_radar_info_text(f"目前推薦偏好：{preference_label}"),
+                        _kpop_radar_info_text(
+                            f"🎬 收藏過的 MV：{counts.get('mv', 0)} 個"
+                        ),
+                        _kpop_radar_info_text(
+                            f"🎥 收藏過的直拍：{counts.get('fancam', 0)} 個"
+                        ),
+                        _kpop_radar_info_text(
+                            f"🖼️ 收藏過的照片：{counts.get('photo', 0)} 張"
+                        ),
+                    ],
+                },
+                {
+                    "type": "text",
+                    "text": "收藏越多，每日推薦會越貼近你的喜好。",
+                    "size": "xs",
+                    "color": KPOP_RADAR_MUTED_TEXT_COLOR,
+                    "wrap": True,
+                },
+                _kpop_radar_button("查看 MV 收藏", "action=view_saved&type=mv"),
+                _kpop_radar_button("查看直拍收藏", "action=view_saved&type=fancam"),
+                _kpop_radar_button("查看照片收藏", "action=view_saved&type=photo"),
+                _kpop_radar_button("修改推薦偏好", "action=open_pref", primary=True),
+            ],
+        },
+    }
+
+
+def _kpop_radar_info_text(text: str) -> dict:
+    return {
+        "type": "text",
+        "text": text,
+        "size": "sm",
+        "color": KPOP_RADAR_TEXT_COLOR,
+        "wrap": True,
+    }
+
+
+def _kpop_radar_button(label: str, data: str, primary: bool = False) -> dict:
+    button = {
+        "type": "button",
+        "style": "primary" if primary else "secondary",
+        "height": "sm",
+        "action": {
+            "type": "postback",
+            "label": label,
+            "data": data,
+        },
+    }
+    if primary:
+        button["color"] = KPOP_RADAR_ACCENT_COLOR
+    return button
+
+
+def _build_kpop_radar_preference_flex_contents() -> dict:
+    return {
+        "type": "bubble",
+        "size": "kilo",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": KPOP_RADAR_ACCENT_COLOR,
+            "paddingAll": "14px",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "修改推薦偏好",
+                    "size": "md",
+                    "weight": "bold",
+                    "color": "#FFFFFF",
+                },
+            ],
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": KPOP_RADAR_BODY_COLOR,
+            "paddingAll": "14px",
+            "spacing": "sm",
+            "contents": [
+                _kpop_radar_preference_button("女團", "girl_group"),
+                _kpop_radar_preference_button("男團", "boy_group"),
+                _kpop_radar_preference_button("都可以", "all"),
+            ],
+        },
+    }
+
+
+def _kpop_radar_preference_button(label: str, preferred_gender: str) -> dict:
+    return {
+        "type": "button",
+        "style": "primary",
+        "height": "sm",
+        "color": KPOP_RADAR_ACCENT_COLOR,
+        "action": {
+            "type": "postback",
+            "label": label,
+            "data": f"action=set_pref&gender={preferred_gender}",
+        },
+    }
+
+
+def _build_kpop_radar_preference_quick_reply():
+    if QuickReply is None or QuickReplyItem is None or PostbackAction is None:
+        return None
+    return QuickReply(
+        items=[
+            QuickReplyItem(
+                action=PostbackAction(
+                    label=label,
+                    data=f"action=set_pref&gender={gender}",
+                )
+            )
+            for label, gender in (
+                ("女團", "girl_group"),
+                ("男團", "boy_group"),
+                ("都可以", "all"),
+            )
+        ]
+    )
+
+
+def _format_kpop_radar_saved_items(
+    item_type: str,
+    items: list[dict[str, object]],
+) -> str:
+    icon, label, _unit = KPOP_RADAR_ITEM_LABELS.get(
+        item_type,
+        KPOP_RADAR_ITEM_LABELS["mv"],
+    )
+    if not items:
+        return f"{icon} 你的 {label} 收藏\n\n目前還沒有收藏。"
+    lines = [f"{icon} 你的 {label} 收藏", ""]
+    for index, item in enumerate(items[:20], start=1):
+        artist = str(item.get("artist") or "").strip()
+        title = str(item.get("title") or "").strip()
+        member = str(item.get("member") or "").strip()
+        name = f"{artist} - {title}" if artist else title
+        if member:
+            name = f"{name} ({member})"
+        lines.append(f"{index}. {name}")
+    return "\n".join(lines)
+
+
 def _build_help_message():
     return TextMessage(
         text=(
@@ -1493,7 +1805,35 @@ def _is_artist_picker_request(message: str) -> bool:
 
 
 def _is_help_request(message: str) -> bool:
-    return message.strip() in {"使用說明", "help", "Help", "HELP"}
+    return message.strip() in {"help", "Help", "HELP"}
+
+
+def _is_kpop_radar_request(message: str) -> bool:
+    normalized = message.strip()
+    compact = normalized.casefold().replace(" ", "")
+    if normalized in KPOP_RADAR_TRIGGERS:
+        return True
+    if compact in {trigger.casefold().replace(" ", "") for trigger in KPOP_RADAR_TRIGGERS}:
+        return True
+    return _kpop_radar_action(message) in KPOP_RADAR_ACTIONS
+
+
+def _kpop_radar_action(message: str) -> str:
+    return _kpop_radar_params(message).get("action", "")
+
+
+def _kpop_radar_param(message: str, key: str, default: str = "") -> str:
+    return _kpop_radar_params(message).get(key, default)
+
+
+def _kpop_radar_params(message: str) -> dict[str, str]:
+    data = message.strip()
+    if "=" not in data:
+        return {}
+    return {
+        str(key): str(value)
+        for key, value in parse_qsl(data, keep_blank_values=True)
+    }
 
 
 def _is_play_zone_request(message: str) -> bool:
@@ -1599,6 +1939,7 @@ def _is_ai_curator_preference_request(message: str) -> bool:
 def _is_fixed_command_request(message: str) -> bool:
     return (
         _is_artist_picker_request(message)
+        or _is_kpop_radar_request(message)
         or _is_help_request(message)
         or _is_play_zone_request(message)
         or _is_ai_curator_entry_request(message)
@@ -1754,6 +2095,8 @@ def _mentions_supported_artist(message: str) -> bool:
 
 
 def _reply_text_for_message(message: str, user_id: str = "analyze-user") -> str:
+    if _is_kpop_radar_request(message):
+        return _kpop_radar_response(message, user_id=user_id)["report"]
     if _is_help_request(message):
         return _build_help_message().text
     if _is_play_zone_request(message):
@@ -1777,7 +2120,7 @@ def _reply_text_for_message(message: str, user_id: str = "analyze-user") -> str:
     if _is_play_zone_placeholder_request(message):
         return _play_zone_placeholder_text(message)
     if _is_daily_kpop_category_request(message):
-        return _daily_kpop_placeholder_text(message)
+        return _daily_kpop_response(message, user_id=user_id)["report"]
     if _is_historical_weekly_chart_request(message):
         return agent.generate_weekly_chart_report_for_date(_historical_weekly_chart_date(message))
     if route_message(message).name == "weekly_chart":
@@ -1796,7 +2139,8 @@ def _fixed_command_help_text() -> str:
         "2. 分析 IVE\n"
         "3. 本週榜單\n"
         "4. 互動專區\n"
-        "5. 每日一首\n\n"
+        "5. 每日一首\n"
+        "6. 我的 K-pop 雷達\n\n"
         "請用「分析 藝人名」取得完整報告。"
     )
 
@@ -2313,9 +2657,16 @@ def _ai_curator_reason_followup_response(
     message: str,
     user_id: str | None = None,
 ) -> dict:
-    member_row = _find_ai_curator_reason_member_from_context(message, user_id)
+    explicit_member_row = _find_ai_curator_reason_member(message)
+    if explicit_member_row and _contains_lookup_name(
+        message,
+        explicit_member_row.get("artist", ""),
+    ):
+        member_row = explicit_member_row
+    else:
+        member_row = _find_ai_curator_reason_member_from_context(message, user_id)
     if member_row is None:
-        member_row = _find_ai_curator_reason_member(message)
+        member_row = explicit_member_row
     if member_row:
         fallback = _fallback_ai_curator_reason_answer(member_row)
         reason = _generate_ai_curator_reason_answer(message, member_row, fallback)
@@ -3320,6 +3671,34 @@ def _safe_member_quiz_image_filename(filename: str) -> str | None:
     return normalized
 
 
+def _daily_kpop_response(message: str, user_id: str = "analyze-user") -> dict:
+    category = _daily_kpop_category(message)
+    if category == "MV" and radar_repo.enabled:
+        try:
+            recommendation = radar_repo.recommend_daily_mv(user_id)
+        except Exception:
+            logger.exception("Supabase daily MV recommendation failed; using CSV fallback.")
+        else:
+            if recommendation:
+                return {
+                    "report": _format_kpop_item_recommendation(category, recommendation),
+                    "flex": _build_kpop_radar_save_prompt_flex_contents(
+                        recommendation,
+                        category,
+                    ),
+                }
+            return {
+                "report": "目前 Supabase 還沒有可推薦的 MV，請先匯入 kpop_items。",
+                "flex": _build_daily_kpop_redraw_flex_contents(),
+            }
+
+    report = _daily_kpop_placeholder_text(message)
+    return {
+        "report": report,
+        "flex": _build_daily_kpop_redraw_flex_contents(),
+    }
+
+
 def _daily_kpop_placeholder_text(message: str) -> str:
     category = _daily_kpop_category(message)
     recommendation = _load_daily_kpop_recommendation(category)
@@ -3446,6 +3825,69 @@ def _format_daily_kpop_recommendation(category: str, recommendation: dict[str, s
         lines.append(f"直拍成員：{member}")
     lines.append(url)
     return "\n".join(lines)
+
+
+def _format_kpop_item_recommendation(category: str, recommendation: dict[str, object]) -> str:
+    artist = str(recommendation.get("artist") or "").strip()
+    title = str(recommendation.get("title") or "").strip()
+    url = str(recommendation.get("url") or "").strip()
+    member = str(recommendation.get("member") or "").strip()
+
+    lines = [f"🎵 今日推薦 {category}", f"今天推薦的是 {artist} 的《{title}》。"]
+    if member:
+        lines.append(f"成員：{member}")
+    if url:
+        lines.append(url)
+    return "\n".join(lines)
+
+
+def _build_kpop_radar_save_prompt_flex_contents(
+    recommendation: dict[str, object],
+    category: str,
+) -> dict:
+    item_id = str(recommendation.get("id") or "")
+    item_type = str(recommendation.get("item_type") or "mv")
+    label = {
+        "mv": "收藏 MV",
+        "fancam": "收藏直拍",
+        "photo": "收藏照片",
+    }.get(item_type, f"收藏 {category}")
+    contents = [
+        {
+            "type": "text",
+            "text": "喜歡這個推薦嗎？",
+            "size": "xs",
+            "color": KPOP_RADAR_TEXT_COLOR,
+            "wrap": True,
+        },
+    ]
+    if item_id:
+        contents.append(
+            {
+                "type": "button",
+                "style": "primary",
+                "height": "sm",
+                "color": KPOP_RADAR_ACCENT_COLOR,
+                "action": {
+                    "type": "postback",
+                    "label": label,
+                    "data": f"action=save_item&item_id={item_id}",
+                },
+            }
+        )
+    contents.append(_daily_redraw_button("再抽 MV", "每日 MV"))
+    return {
+        "type": "bubble",
+        "size": "kilo",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": KPOP_RADAR_BODY_COLOR,
+            "paddingAll": "14px",
+            "spacing": "sm",
+            "contents": contents,
+        },
+    }
 
 
 def _daily_kpop_csv_filename(category: str) -> str:
@@ -3684,12 +4126,38 @@ if line_handler is not None and MessageEvent is not None and TextMessageContent 
             _clear_line_event_processing(event)
             return
         line_user_id = _line_user_id(event) or "line-user"
+        try:
+            _ensure_kpop_radar_user(line_user_id)
+        except Exception:
+            logger.exception("Could not initialize K-pop Radar user.")
         with ApiClient(line_configuration) as api_client:
             line_bot_api = MessagingApi(api_client)
             reply_messages = None
             if _is_artist_picker_request(user_text):
                 reply_message = _build_artist_picker_message()
                 fallback_text = "請輸入：分析 aespa、分析 IVE、分析 NCT"
+            elif _is_kpop_radar_request(user_text):
+                response = _kpop_radar_response(user_text, user_id=line_user_id)
+                fallback_text = fit_line_text(response["report"])
+                if _kpop_radar_action(user_text) == "open_pref":
+                    reply_message = TextMessage(
+                        text=fallback_text,
+                        quickReply=_build_kpop_radar_preference_quick_reply(),
+                    )
+                    reply_messages = [
+                        reply_message,
+                        _build_line_flex_message(
+                            response["flex"],
+                            alt_text="修改推薦偏好",
+                        ),
+                    ]
+                elif response["flex"] is not None:
+                    reply_message = _build_line_flex_message(
+                        response["flex"],
+                        alt_text="我的 K-pop 雷達",
+                    )
+                else:
+                    reply_message = TextMessage(text=fallback_text)
             elif _is_help_request(user_text):
                 reply_message = _build_help_message()
                 fallback_text = reply_message.text
@@ -3758,15 +4226,17 @@ if line_handler is not None and MessageEvent is not None and TextMessageContent 
                 )
                 fallback_text = "請選擇：每日 MV、每日直拍、每日經典舞台"
             elif _is_daily_kpop_category_request(user_text):
-                fallback_text = fit_line_text(_daily_kpop_placeholder_text(user_text))
+                response = _daily_kpop_response(user_text, user_id=line_user_id)
+                fallback_text = fit_line_text(response["report"])
                 reply_message = TextMessage(text=fallback_text)
-                reply_messages = [
-                    reply_message,
-                    _build_line_flex_message(
-                        _build_daily_kpop_redraw_flex_contents(),
-                        alt_text="再抽一首 K-pop",
-                    ),
-                ]
+                if response["flex"] is not None:
+                    reply_messages = [
+                        reply_message,
+                        _build_line_flex_message(
+                            response["flex"],
+                            alt_text="再抽一首 K-pop",
+                        ),
+                    ]
             elif _is_photo_card_request(user_text):
                 report_text = _photo_card_placeholder_text()
                 fallback_text = fit_line_text(report_text)
