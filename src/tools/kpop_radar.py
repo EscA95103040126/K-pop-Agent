@@ -283,6 +283,92 @@ class KpopRadarRepository:
         )
         return _first(rows) if rows else None
 
+    def find_item_by_url(self, item_type: str, url: str) -> dict[str, Any] | None:
+        if item_type not in VALID_ITEM_TYPES:
+            raise ValueError(f"Unsupported item_type: {item_type}")
+        if not self.client or not url:
+            return None
+        rows = self.client.request(
+            "GET",
+            "kpop_items",
+            params={
+                "select": "*",
+                "item_type": f"eq.{item_type}",
+                "url": f"eq.{url}",
+                "limit": "1",
+            },
+        )
+        return _first(rows) if rows else None
+
+    def sync_kpop_items(self, items: list[dict[str, Any]]) -> dict[str, int]:
+        if not self.client:
+            raise KpopRadarError("Supabase is not configured")
+
+        normalized_items = [_normalize_kpop_item(item) for item in items]
+        existing_rows = self.client.request(
+            "GET",
+            "kpop_items",
+            params={
+                "select": "id,item_type,url,gender_category,artist,member,title,thumbnail_url,source",
+                "limit": "10000",
+            },
+        ) or []
+        existing_by_key = {
+            (str(row.get("item_type") or ""), str(row.get("url") or "")): row
+            for row in existing_rows
+        }
+
+        inserted = 0
+        updated = 0
+        skipped = 0
+        new_items: list[dict[str, Any]] = []
+        for item in normalized_items:
+            key = (str(item["item_type"]), str(item["url"]))
+            existing = existing_by_key.get(key)
+            if existing is None:
+                new_items.append(item)
+                continue
+
+            patch = {
+                field: item.get(field)
+                for field in (
+                    "gender_category",
+                    "artist",
+                    "member",
+                    "title",
+                    "thumbnail_url",
+                    "source",
+                )
+                if _empty_to_none(existing.get(field)) != _empty_to_none(item.get(field))
+            }
+            if not patch:
+                skipped += 1
+                continue
+            self.client.request(
+                "PATCH",
+                "kpop_items",
+                params={"id": f"eq.{existing['id']}"},
+                json_payload=patch,
+                prefer="return=minimal",
+            )
+            updated += 1
+
+        for chunk in _chunks(new_items, 100):
+            self.client.request(
+                "POST",
+                "kpop_items",
+                json_payload=chunk,
+                prefer="return=minimal",
+            )
+            inserted += len(chunk)
+
+        return {
+            "input": len(normalized_items),
+            "inserted": inserted,
+            "updated": updated,
+            "skipped": skipped,
+        }
+
     def _list_recommendable_mv_items(self, preferred_gender: str) -> list[dict[str, Any]]:
         params = {
             "select": "*",
@@ -365,6 +451,39 @@ def _first(rows: Any) -> dict[str, Any]:
     if isinstance(rows, list) and rows:
         return rows[0]
     return {}
+
+
+def _normalize_kpop_item(item: dict[str, Any]) -> dict[str, Any]:
+    item_type = str(item.get("item_type") or "").strip()
+    gender_category = str(item.get("gender_category") or "").strip()
+    if item_type not in VALID_ITEM_TYPES:
+        raise ValueError(f"Unsupported item_type: {item_type}")
+    if gender_category not in {"girl_group", "boy_group", "solo", "mixed"}:
+        raise ValueError(f"Unsupported gender_category: {gender_category}")
+    normalized = {
+        "item_type": item_type,
+        "gender_category": gender_category,
+        "artist": str(item.get("artist") or "").strip(),
+        "member": _empty_to_none(item.get("member")),
+        "title": str(item.get("title") or "").strip(),
+        "url": str(item.get("url") or "").strip(),
+        "thumbnail_url": _empty_to_none(item.get("thumbnail_url")),
+        "source": _empty_to_none(item.get("source")),
+    }
+    for required_field in ("artist", "title", "url"):
+        if not normalized[required_field]:
+            raise ValueError(f"kpop item missing {required_field}: {item}")
+    return normalized
+
+
+def _empty_to_none(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _chunks(items: list[dict[str, Any]], size: int):
+    for index in range(0, len(items), size):
+        yield items[index:index + size]
 
 
 def _now_iso() -> str:

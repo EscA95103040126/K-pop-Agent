@@ -117,10 +117,11 @@ KPOP_RADAR_ACTIONS = {
     "set_pref",
     "save_item",
 }
-KPOP_RADAR_ACCENT_COLOR = "#8B5CF6"
-KPOP_RADAR_BODY_COLOR = "#F8F7FF"
-KPOP_RADAR_TEXT_COLOR = "#3F365F"
-KPOP_RADAR_MUTED_TEXT_COLOR = "#615978"
+KPOP_RADAR_ACCENT_COLOR = "#B76E61"
+KPOP_RADAR_BODY_COLOR = "#FFF6F0"
+KPOP_RADAR_SUBTITLE_COLOR = "#FFE9DF"
+KPOP_RADAR_TEXT_COLOR = "#5C3F37"
+KPOP_RADAR_MUTED_TEXT_COLOR = "#7A6258"
 KPOP_RADAR_ITEM_LABELS = {
     "mv": ("🎬", "MV", "個"),
     "fancam": ("🎥", "直拍", "個"),
@@ -395,15 +396,7 @@ def analyze() -> tuple[dict, int]:
     elif _is_daily_kpop_category_request(message):
         response = _daily_kpop_response(message, user_id=user_id)
     elif _is_photo_card_request(message):
-        report = _photo_card_placeholder_text()
-        response = {
-            "report": report,
-            "flex": (
-                None
-                if report == PHOTO_CARD_EMPTY_TEXT
-                else _build_photo_card_redraw_flex_contents()
-            ),
-        }
+        response = _photo_card_response()
     elif _is_historical_weekly_chart_request(message):
         chart_date = _historical_weekly_chart_date(message)
         response = {
@@ -1569,14 +1562,18 @@ def _kpop_radar_save_item_response(user_id: str, item_id: str) -> dict:
         return {"report": "找不到要收藏的內容。", "flex": None}
     result = radar_repo.save_item(user_id, item_id)
     if result.saved:
+        preferred_gender = radar_repo.get_preference(user_id)
+        counts = radar_repo.saved_counts(user_id)
         return {
             "report": "已加入你的 K-pop 雷達收藏庫 ⭐",
-            "flex": None,
+            "flex": _build_kpop_radar_flex_contents(preferred_gender, counts),
         }
     if result.duplicate:
+        preferred_gender = radar_repo.get_preference(user_id)
+        counts = radar_repo.saved_counts(user_id)
         return {
             "report": "這個內容已經在你的收藏庫裡了 ⭐",
-            "flex": None,
+            "flex": _build_kpop_radar_flex_contents(preferred_gender, counts),
         }
     if result.status == "missing":
         return {"report": "找不到這個 K-pop 內容，可能已被移除。", "flex": None}
@@ -1601,7 +1598,7 @@ def _build_kpop_radar_flex_contents(
                     "type": "text",
                     "text": "收藏庫",
                     "size": "xs",
-                    "color": "#EFE9FF",
+                    "color": KPOP_RADAR_SUBTITLE_COLOR,
                 },
                 {
                     "type": "text",
@@ -2118,7 +2115,7 @@ def _reply_text_for_message(message: str, user_id: str = "analyze-user") -> str:
     if _is_daily_kpop_request(message):
         return "請在 LINE 中點選每日一首 K-pop 卡片選擇 MV、直拍或經典舞台。"
     if _is_photo_card_request(message):
-        return _photo_card_placeholder_text()
+        return _photo_card_response()["report"]
     if _is_play_zone_placeholder_request(message):
         return _play_zone_placeholder_text(message)
     if _is_daily_kpop_category_request(message):
@@ -3078,6 +3075,22 @@ def _photo_card_placeholder_text() -> str:
     return PHOTO_CARD_EMPTY_TEXT
 
 
+def _photo_card_response() -> dict:
+    card = _load_photo_card_recommendation()
+    if not card:
+        return {"report": PHOTO_CARD_EMPTY_TEXT, "flex": None}
+    return {
+        "report": _format_photo_card_recommendation(card),
+        "flex": _build_recommendation_action_flex_contents(
+            item_type="photo",
+            url=card.get("url", ""),
+            redraw_label="再抽神圖",
+            redraw_text="神圖抽卡",
+            fallback_flex=_build_photo_card_redraw_flex_contents(),
+        ),
+    }
+
+
 def _load_cached_csv_rows(
     csv_path: Path,
     row_filter: Callable[[dict[str, str]], bool],
@@ -3687,6 +3700,8 @@ def _daily_kpop_response(message: str, user_id: str = "analyze-user") -> dict:
                     "flex": _build_kpop_radar_save_prompt_flex_contents(
                         recommendation,
                         category,
+                        redraw_label="再抽 MV",
+                        redraw_text="每日 MV",
                     ),
                 }
             return {
@@ -3694,9 +3709,23 @@ def _daily_kpop_response(message: str, user_id: str = "analyze-user") -> dict:
                 "flex": _build_daily_kpop_redraw_flex_contents(),
             }
 
-    report = _daily_kpop_placeholder_text(message)
+    recommendation = _load_daily_kpop_recommendation(category)
+    if recommendation:
+        return {
+            "report": _format_daily_kpop_recommendation(category, recommendation),
+            "flex": _build_recommendation_action_flex_contents(
+                item_type=_daily_kpop_item_type(category),
+                url=recommendation.get("url", ""),
+                redraw_label=f"再抽{category}",
+                redraw_text=f"每日 {category}",
+                fallback_flex=_build_daily_kpop_redraw_flex_contents(),
+            ),
+        }
     return {
-        "report": report,
+        "report": (
+            f"每日一首 K-pop：{category}\n"
+            f"入口已建立。請先在 {_daily_kpop_csv_label(category)} 補上歌曲標題與連結。"
+        ),
         "flex": _build_daily_kpop_redraw_flex_contents(),
     }
 
@@ -3719,6 +3748,14 @@ def _daily_kpop_category(message: str) -> str:
     if "經典舞台" in normalized:
         return "經典舞台"
     return "MV"
+
+
+def _daily_kpop_item_type(category: str) -> str:
+    if category == "直拍":
+        return "fancam"
+    if category == "MV":
+        return "mv"
+    return ""
 
 
 def _load_daily_kpop_recommendation(category: str) -> dict[str, str] | None:
@@ -3843,17 +3880,40 @@ def _format_kpop_item_recommendation(category: str, recommendation: dict[str, ob
     return "\n".join(lines)
 
 
+def _build_recommendation_action_flex_contents(
+    *,
+    item_type: str,
+    url: str,
+    redraw_label: str,
+    redraw_text: str,
+    fallback_flex: dict | None = None,
+) -> dict:
+    item = None
+    if item_type and radar_repo.enabled:
+        try:
+            item = radar_repo.find_item_by_url(item_type, url)
+        except Exception:
+            logger.exception("Could not look up K-pop Radar item for save button.")
+    if item:
+        return _build_kpop_radar_save_prompt_flex_contents(
+            item,
+            _kpop_radar_item_type_label(item_type),
+            redraw_label=redraw_label,
+            redraw_text=redraw_text,
+        )
+    return fallback_flex or _build_single_redraw_flex_contents(redraw_label, redraw_text)
+
+
 def _build_kpop_radar_save_prompt_flex_contents(
     recommendation: dict[str, object],
     category: str,
+    *,
+    redraw_label: str,
+    redraw_text: str,
 ) -> dict:
     item_id = str(recommendation.get("id") or "")
     item_type = str(recommendation.get("item_type") or "mv")
-    label = {
-        "mv": "收藏 MV",
-        "fancam": "收藏直拍",
-        "photo": "收藏照片",
-    }.get(item_type, f"收藏 {category}")
+    label = "收藏至雷達"
     contents = [
         {
             "type": "text",
@@ -3877,7 +3937,7 @@ def _build_kpop_radar_save_prompt_flex_contents(
                 },
             }
         )
-    contents.append(_daily_redraw_button("再抽 MV", "每日 MV"))
+    contents.append(_single_redraw_button(redraw_label, redraw_text))
     return {
         "type": "bubble",
         "size": "kilo",
@@ -3890,6 +3950,54 @@ def _build_kpop_radar_save_prompt_flex_contents(
             "contents": contents,
         },
     }
+
+
+def _build_single_redraw_flex_contents(label: str, text: str) -> dict:
+    return {
+        "type": "bubble",
+        "size": "kilo",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#F4F8FC",
+            "paddingAll": "14px",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "想再抽一次嗎？",
+                    "size": "xs",
+                    "color": "#314B60",
+                    "wrap": True,
+                },
+                _single_redraw_button(label, text),
+            ],
+        },
+    }
+
+
+def _single_redraw_button(label: str, text: str) -> dict:
+    if text == "神圖抽卡":
+        return {
+            "type": "button",
+            "style": "primary",
+            "height": "sm",
+            "color": PLAY_ZONE_ACCENT_COLOR,
+            "action": {
+                "type": "message",
+                "label": label,
+                "text": text,
+            },
+        }
+    return _daily_redraw_button(label, text)
+
+
+def _kpop_radar_item_type_label(item_type: str) -> str:
+    return {
+        "mv": "MV",
+        "fancam": "直拍",
+        "photo": "照片",
+    }.get(item_type, "內容")
 
 
 def _daily_kpop_csv_filename(category: str) -> str:
@@ -4240,14 +4348,15 @@ if line_handler is not None and MessageEvent is not None and TextMessageContent 
                         ),
                     ]
             elif _is_photo_card_request(user_text):
-                report_text = _photo_card_placeholder_text()
+                response = _photo_card_response()
+                report_text = response["report"]
                 fallback_text = fit_line_text(report_text)
                 reply_message = TextMessage(text=fallback_text)
-                if report_text != PHOTO_CARD_EMPTY_TEXT:
+                if response["flex"] is not None:
                     reply_messages = [
                         reply_message,
                         _build_line_flex_message(
-                            _build_photo_card_redraw_flex_contents(),
+                            response["flex"],
                             alt_text="再抽一次",
                         ),
                     ]
