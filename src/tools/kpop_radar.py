@@ -54,8 +54,9 @@ class SupabaseRestClient:
     ) -> Any:
         headers = {
             "apikey": self.service_role_key,
-            "Authorization": f"Bearer {self.service_role_key}",
         }
+        if not self.service_role_key.startswith("sb_"):
+            headers["Authorization"] = f"Bearer {self.service_role_key}"
         if json_payload is not None:
             headers["Content-Type"] = "application/json"
         if prefer:
