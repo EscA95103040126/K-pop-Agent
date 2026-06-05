@@ -118,13 +118,14 @@ AI 入坑支援自然語言偏好，例如：
 
 抽取結果會回傳純文字連結，讓 LINE 自動產生 YouTube 預覽，並附上可再次抽取的 Flex Message。
 
-若 Supabase 已設定，`每日 MV` 會優先使用 `kpop_items` 做個人化推薦。使用者在「我的 K-pop 口袋」設定的 `preferred_gender` 會對應到 `kpop_items.gender_category`，因此可以只抽女團、男團或都可以。若 Supabase 未設定或查詢失敗，系統會回到 `daily_mv.csv` 的本地隨機抽取。
+若 Supabase 已設定，`每日 MV` 會優先使用 `kpop_items` 做個人化推薦。使用者在「我的 K-pop 口袋」設定的 `preferred_gender` 會對應到 `kpop_items.gender_category`，因此可以只抽女團、男團或都可以。若選擇 `all` / 都可以，系統不會只推薦 `mixed` 內容，而是不加性別篩選，從男團、女團與 mixed 全部 MV 中抽取。若 Supabase 未設定或查詢失敗，系統會回到 `daily_mv.csv` 的本地隨機抽取。
 
 `daily_mv.csv` 本身只存 `artist`、`title`、`url`，不直接存性別分類。分類是在匯入 Supabase 前由 `scripts/import_kpop_items.py` 補上：
 
 - 先從 `data/play_zone/bias_radar_members.csv` 的 `group_type` 建立藝人性別 lookup。
 - 再用 `MANUAL_ARTIST_GENDERS` 補齊 CSV 內沒有出現在本命雷達資料集的團體名稱。
 - 匯入後寫入 `kpop_items.gender_category`，每日 MV 推薦再用使用者的 `preferred_gender` 篩選。
+- `mixed` 是內容分類，不是使用者偏好選項；使用者偏好選項只有女團、男團、都可以。
 
 目前 MV 藝人分類已校正為：
 
@@ -144,6 +145,17 @@ AI 入坑支援自然語言偏好，例如：
 - `user_draw_history`：每日 MV 已抽過的項目，用來降低重複推薦。
 
 使用者可以在 LINE 中查看收藏數、查看已收藏內容、修改每日 MV 推薦偏好，並從每日推薦、直拍或神圖抽卡結果加入收藏。
+
+推薦邏輯重點：
+
+1. 設定推薦偏好
+使用者可以選擇女團、男團或都可以，讓每日 MV 推薦更符合自己的追星方向。
+
+2. 減少每日 MV 重複推薦
+系統會記錄使用者已抽過與已收藏的 MV，推薦時優先避開重複項目，提升探索新內容的效率。
+
+3. 建立個人化資料層
+收藏、偏好與抽取記錄會寫入 Supabase，讓 LINE Bot 從一次性回覆工具，升級成能累積使用者喜好的 K-pop 助理。
 
 ### 6. K-pop Play Zone
 
