@@ -254,7 +254,8 @@ Flask app.py
 .
 ├── app.py                         # Flask app、LINE webhook、Flex Message 與互動流程
 ├── Dockerfile                     # Hugging Face Space Docker runtime
-├── requirements.txt               # Python dependencies
+├── requirements.txt               # Runtime Python dependencies
+├── requirements-dev.txt           # 本機測試與開發依賴
 ├── src/
 │   ├── agent.py                   # 藝人分析、Gemini 報告與 fallback
 │   ├── config.py                  # 環境變數與路徑設定
@@ -321,7 +322,7 @@ cp .env.example .env
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 ```
 
 ### 2. 初始化資料庫

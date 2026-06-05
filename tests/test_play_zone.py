@@ -265,6 +265,16 @@ def test_photo_cards_csv_template_is_readable() -> None:
     assert header == "artist,type,url"
 
 
+def test_photo_cards_csv_urls_are_normalized() -> None:
+    csv_path = Path(app_module.__file__).resolve().parent / "data" / "play_zone" / "photo_cards.csv"
+
+    with csv_path.open(newline="", encoding="utf-8") as file:
+        rows = list(csv.DictReader(file))
+
+    assert all(row["url"] == row["url"].strip() for row in rows)
+    assert all(row["url"].startswith(("http://", "https://")) for row in rows)
+
+
 def test_photo_cards_csv_loads_valid_rows(monkeypatch, tmp_path: Path) -> None:
     _use_photo_card_csv(
         monkeypatch,
@@ -371,6 +381,30 @@ def test_member_quiz_csv_template_is_readable() -> None:
     header = csv_path.read_text(encoding="utf-8").splitlines()[0]
 
     assert header == "id,question,image_path,option_a,option_b,answer"
+
+
+def test_member_quiz_csv_does_not_contain_non_breaking_spaces() -> None:
+    csv_path = Path(app_module.__file__).resolve().parent / "data" / "play_zone" / "member_quiz.csv"
+
+    assert "\u00a0" not in csv_path.read_text(encoding="utf-8")
+
+
+def test_member_quiz_row_normalizes_unicode_spaces() -> None:
+    row = app_module._normalize_member_quiz_row(
+        {
+            "id": " q001 ",
+            "question": "請問圖片的人是誰？",
+            "image_path": " data/play_zone/member_quiz_images/q001.jpg ",
+            "option_a": "Jiwoo\u00a0金智友",
+            "option_b": "Kyujin\u00a0張圭珍",
+            "answer": " a ",
+        }
+    )
+
+    assert row["id"] == "q001"
+    assert row["option_a"] == "Jiwoo 金智友"
+    assert row["option_b"] == "Kyujin 張圭珍"
+    assert row["answer"] == "A"
 
 
 def test_member_quiz_empty_csv_does_not_crash(monkeypatch, tmp_path: Path) -> None:

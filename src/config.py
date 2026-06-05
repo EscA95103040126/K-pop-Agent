@@ -20,6 +20,16 @@ def _path_from_env(name: str, default: str) -> Path:
     return path if path.is_absolute() else BASE_DIR / path
 
 
+def _int_from_env(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
 @dataclass(frozen=True)
 class Settings:
     base_dir: Path = BASE_DIR
@@ -36,7 +46,7 @@ class Settings:
     supabase_service_role_key: str | None = (
         os.getenv("SUPABASE_SERVICE_ROLE_KEY") or None
     )
-    port: int = int(os.getenv("PORT", "5000"))
+    port: int = _int_from_env("PORT", 5000)
 
     @property
     def use_naver_mock(self) -> bool:

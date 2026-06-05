@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 RUN python scripts/init_db.py && \
-    if [ ! -s data/chart_history.db ]; then python scripts/seed_data.py; fi
+    python scripts/seed_data.py
 
 EXPOSE 7860
 

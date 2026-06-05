@@ -10,6 +10,7 @@ import unicodedata
 from collections import OrderedDict
 from datetime import date, timedelta
 from pathlib import Path
+from threading import RLock
 from time import monotonic, time
 from typing import Callable
 from urllib.parse import parse_qsl, quote
@@ -287,6 +288,7 @@ FAN_ATTRIBUTE_QUIZ = [
 line_processed_event_ids: OrderedDict[str, float] | None = None
 line_processing_event_ids: set[str] = set()
 line_recent_message_keys: OrderedDict[tuple[str, str], float] = OrderedDict()
+line_event_dedupe_lock = RLock()
 LINE_EVENT_DEDUPE_TTL_SECONDS = 60 * 60 * 24
 LINE_EVENT_DEDUPE_MAX_SIZE = 1000
 LINE_MESSAGE_DEBOUNCE_SECONDS = 1.5
@@ -3633,13 +3635,17 @@ def _load_member_quiz_rows() -> list[dict[str, str]]:
 
 def _normalize_member_quiz_row(row: dict[str, str]) -> dict[str, str]:
     return {
-        "id": row.get("id", "").strip(),
-        "question": row.get("question", "").strip(),
-        "image_path": row.get("image_path", "").strip(),
-        "option_a": row.get("option_a", "").strip(),
-        "option_b": row.get("option_b", "").strip(),
-        "answer": row.get("answer", "").strip().upper(),
+        "id": _normalize_csv_cell(row.get("id", "")),
+        "question": _normalize_csv_cell(row.get("question", "")),
+        "image_path": _normalize_csv_cell(row.get("image_path", "")),
+        "option_a": _normalize_csv_cell(row.get("option_a", "")),
+        "option_b": _normalize_csv_cell(row.get("option_b", "")),
+        "answer": _normalize_csv_cell(row.get("answer", "")).upper(),
     }
+
+
+def _normalize_csv_cell(value: str) -> str:
+    return (value or "").replace("\u00a0", " ").strip()
 
 
 def _member_quiz_row_is_usable(row: dict[str, str]) -> bool:
@@ -4115,23 +4121,24 @@ def _line_event_id(event: object) -> str:
 
 
 def _is_line_event_processed_or_processing(event_id: str) -> bool:
-    if event_id in line_processing_event_ids:
-        return True
+    with line_event_dedupe_lock:
+        if event_id in line_processing_event_ids:
+            return True
 
-    processed_event_ids = _line_processed_event_ids()
-    now = time()
-    _prune_ordered_timestamps(
-        processed_event_ids,
-        now=now,
-        ttl_seconds=LINE_EVENT_DEDUPE_TTL_SECONDS,
-        max_size=LINE_EVENT_DEDUPE_MAX_SIZE,
-    )
-    if event_id in processed_event_ids:
-        processed_event_ids.move_to_end(event_id)
-        return True
+        processed_event_ids = _line_processed_event_ids()
+        now = time()
+        _prune_ordered_timestamps(
+            processed_event_ids,
+            now=now,
+            ttl_seconds=LINE_EVENT_DEDUPE_TTL_SECONDS,
+            max_size=LINE_EVENT_DEDUPE_MAX_SIZE,
+        )
+        if event_id in processed_event_ids:
+            processed_event_ids.move_to_end(event_id)
+            return True
 
-    line_processing_event_ids.add(event_id)
-    return False
+        line_processing_event_ids.add(event_id)
+        return False
 
 
 def _mark_line_event_processed(event: MessageEvent) -> None:
@@ -4139,57 +4146,62 @@ def _mark_line_event_processed(event: MessageEvent) -> None:
     if not event_id:
         return
 
-    processed_event_ids = _line_processed_event_ids()
-    processed_event_ids[event_id] = time()
-    _prune_ordered_timestamps(
-        processed_event_ids,
-        now=processed_event_ids[event_id],
-        ttl_seconds=LINE_EVENT_DEDUPE_TTL_SECONDS,
-        max_size=LINE_EVENT_DEDUPE_MAX_SIZE,
-    )
-    line_processing_event_ids.discard(event_id)
-    _save_line_processed_event_ids(processed_event_ids)
+    with line_event_dedupe_lock:
+        processed_event_ids = _line_processed_event_ids()
+        processed_event_ids[event_id] = time()
+        _prune_ordered_timestamps(
+            processed_event_ids,
+            now=processed_event_ids[event_id],
+            ttl_seconds=LINE_EVENT_DEDUPE_TTL_SECONDS,
+            max_size=LINE_EVENT_DEDUPE_MAX_SIZE,
+        )
+        line_processing_event_ids.discard(event_id)
+        _save_line_processed_event_ids(processed_event_ids)
 
 
 def _clear_line_event_processing(event: MessageEvent) -> None:
     event_id = _line_event_id(event)
     if event_id:
-        line_processing_event_ids.discard(event_id)
+        with line_event_dedupe_lock:
+            line_processing_event_ids.discard(event_id)
 
 
 def _line_processed_event_ids() -> OrderedDict[str, float]:
     global line_processed_event_ids
-    if line_processed_event_ids is not None:
-        return line_processed_event_ids
+    with line_event_dedupe_lock:
+        if line_processed_event_ids is not None:
+            return line_processed_event_ids
 
-    line_processed_event_ids = OrderedDict()
-    if not LINE_EVENT_DEDUPE_PATH.exists():
-        return line_processed_event_ids
+        line_processed_event_ids = OrderedDict()
+        if not LINE_EVENT_DEDUPE_PATH.exists():
+            return line_processed_event_ids
 
-    try:
-        raw_event_ids = json.loads(LINE_EVENT_DEDUPE_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        logger.warning("Could not read LINE event dedupe cache; starting fresh.")
-        return line_processed_event_ids
-
-    if not isinstance(raw_event_ids, dict):
-        return line_processed_event_ids
-
-    for event_id, timestamp in raw_event_ids.items():
         try:
-            line_processed_event_ids[str(event_id)] = float(timestamp)
-        except (TypeError, ValueError):
-            continue
-    return line_processed_event_ids
+            raw_event_ids = json.loads(LINE_EVENT_DEDUPE_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            logger.warning("Could not read LINE event dedupe cache; starting fresh.")
+            return line_processed_event_ids
+
+        if not isinstance(raw_event_ids, dict):
+            return line_processed_event_ids
+
+        for event_id, timestamp in raw_event_ids.items():
+            try:
+                line_processed_event_ids[str(event_id)] = float(timestamp)
+            except (TypeError, ValueError):
+                continue
+        return line_processed_event_ids
 
 
 def _save_line_processed_event_ids(event_ids: OrderedDict[str, float]) -> None:
     try:
         LINE_EVENT_DEDUPE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        LINE_EVENT_DEDUPE_PATH.write_text(
+        temp_path = LINE_EVENT_DEDUPE_PATH.with_name(f"{LINE_EVENT_DEDUPE_PATH.name}.tmp")
+        temp_path.write_text(
             json.dumps(event_ids, ensure_ascii=False),
             encoding="utf-8",
         )
+        temp_path.replace(LINE_EVENT_DEDUPE_PATH)
     except OSError:
         logger.warning("Could not write LINE event dedupe cache.", exc_info=True)
 

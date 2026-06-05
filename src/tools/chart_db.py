@@ -105,7 +105,7 @@ class ChartHistoryRepository:
                 "period": "本週",
                 "best_rank": min(ranks),
                 "avg_rank": round(mean(ranks), 2),
-                "weeks_on_chart": len(history),
+                "weeks_on_chart": 1,
                 "trend": "資料不足",
                 "history": history,
             }

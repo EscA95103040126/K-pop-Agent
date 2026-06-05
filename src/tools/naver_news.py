@@ -62,7 +62,8 @@ class NaverNewsClient:
         file_name = f"naver_{artist.lower().replace(' ', '_')}.json"
         mock_path = self.config.mock_data_dir / file_name
         if not mock_path.exists():
-            mock_path = self.config.mock_data_dir / "naver_aespa.json"
+            logger.info("No Naver mock data found for artist: %s", artist)
+            return []
         return json.loads(mock_path.read_text(encoding="utf-8"))
 
     def _build_query(self, artist: str) -> str:

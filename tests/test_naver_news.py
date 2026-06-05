@@ -28,3 +28,10 @@ def test_naver_news_falls_back_to_mock_on_api_failure(monkeypatch) -> None:
 
     assert news
     assert news[0]["title"] == "aespa 新專輯概念照公開，回歸期待升溫"
+
+
+def test_naver_news_unknown_artist_mock_returns_empty_list() -> None:
+    config = Settings(naver_client_id=None, naver_client_secret=None)
+    client = NaverNewsClient(config)
+
+    assert client.search("UNKNOWN_ARTIST") == []

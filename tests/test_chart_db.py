@@ -14,7 +14,7 @@ def test_chart_db_returns_artist_trend(tmp_path: Path) -> None:
 
     assert result["artist"] == "aespa"
     assert result["best_rank"] == min(item["rank"] for item in result["history"])
-    assert result["weeks_on_chart"] == len(result["history"])
+    assert result["weeks_on_chart"] == len({item["chart_date"] for item in result["history"]})
     assert result["history"]
 
 
@@ -63,7 +63,7 @@ def test_chart_db_single_week_multiple_songs_is_not_trend(tmp_path: Path) -> Non
     assert result["period"] == "本週"
     assert result["best_rank"] == 7
     assert result["avg_rank"] == 32.33
-    assert result["weeks_on_chart"] == 3
+    assert result["weeks_on_chart"] == 1
     assert result["trend"] == "資料不足"
     assert [item["rank"] for item in result["history"]] == [7, 30, 60]
 
