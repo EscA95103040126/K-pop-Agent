@@ -9,4 +9,7 @@ __pycache__
 venv
 .venv
 instance
-data/cache
+data/cache/*
+!data/cache/absa/
+!data/cache/absa/*.json
+!data/cache/absa/summary.csv
