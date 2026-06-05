@@ -278,6 +278,20 @@ def build_absa_payload(
     }
 
 
+def format_absa_report_for_line(
+    payload: dict[str, Any],
+    chart_performance: str,
+) -> str:
+    return _build_report_text(
+        artist=str(payload.get("artist") or ""),
+        aspect_sentiment=payload.get("aspect_sentiment", {}),
+        overall_sentiment=payload.get("overall_sentiment", {}),
+        naver_news_summary=payload.get("naver_news_summary", []),
+        top_evidence=payload.get("top_comments_or_evidence", []),
+        chart_performance=chart_performance,
+    )
+
+
 def write_absa_payload(payload: dict[str, Any], cache_dir: Path | None = None) -> Path:
     path = absa_cache_path(str(payload["artist"]), cache_dir=cache_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -426,23 +440,16 @@ def _build_report_text(
     overall_sentiment: dict[str, Any],
     naver_news_summary: list[dict[str, str]],
     top_evidence: list[dict[str, str]],
+    chart_performance: str = "",
 ) -> str:
-    overall = overall_sentiment["ratio"]
-    aspect_lines = []
-    for aspect in ABSA_ASPECTS:
-        result = aspect_sentiment[aspect]
-        ratio = result["ratio"]
-        aspect_lines.append(
-            "- "
-            f"{_localized_aspect_label(aspect)}：{_localized_sentiment(result['dominant'])} "
-            f"(正 {ratio['positive']} / 中 {ratio['neutral']} / 負 {ratio['negative']})"
-        )
+    overall = overall_sentiment.get("ratio", {})
+    chart_lines = chart_performance.strip() or "- 本週 Bugs K-pop 榜單 Top 100：資料尚未更新"
     news_titles = _format_news_titles(naver_news_summary)
-    fan_summary = _fan_summary(overall_sentiment["dominant"], overall)
+    fan_summary = _fan_summary(overall_sentiment.get("dominant", "neutral"), overall)
     trend_summary = _trend_summary(
         artist=artist,
         overall=overall,
-        dominant=overall_sentiment["dominant"],
+        dominant=overall_sentiment.get("dominant", "neutral"),
         news_titles=news_titles,
     )
     market_insight = _market_insight_text(
@@ -459,15 +466,13 @@ def _build_report_text(
     return f"""# {artist} 近期市場與輿論分析
 
 ## 1. 榜單表現
-- 榜單表現沿用既有 Bugs 榜單快取觀察，搭配本次新聞與留言聲量判讀。
-- 目前更適合看作回歸期與內容曝光的輔助訊號，後續可再與週榜排名交叉追蹤。
+{chart_lines}
 
 ## 2. 粉絲與輿論反應
-- 正面比例：{overall['positive']}
-- 中立比例：{overall['neutral']}
-- 負面比例：{overall['negative']}
+- 正面比例：{overall.get('positive', 0)}
+- 中立比例：{overall.get('neutral', 0)}
+- 負面比例：{overall.get('negative', 0)}
 - 簡短解讀：{fan_summary}
-{chr(10).join(aspect_lines)}
 
 ## 3. 綜合判斷
 - 市場熱度：{_market_heat_from_overall(overall)}

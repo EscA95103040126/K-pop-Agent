@@ -15,7 +15,7 @@ from src.config import Settings, settings
 from src.router import ARTIST_PATTERNS, Intent, route_message
 from src.tools.chart_db import ChartHistoryRepository
 from src.tools.naver_news import NaverNewsClient
-from src.tools.absa import load_absa_cache
+from src.tools.absa import format_absa_report_for_line, load_absa_cache
 from src.tools.sentiment import analyze_sentiment_from_csv
 
 logger = logging.getLogger(__name__)
@@ -186,17 +186,27 @@ class KpopAnalysisAgent:
         absa_payload: dict[str, Any],
         period_months: int = 3,
     ) -> dict[str, Any]:
-        report = str(absa_payload.get("report_text") or "")
+        artist = str(absa_payload.get("artist") or "")
+        weekly_chart = self.chart_repo.get_latest_weekly_chart(limit=100)
+        chart_performance = _format_current_weekly_artist_chart_lines(
+            artist=artist,
+            weekly_chart=weekly_chart,
+        )
+        report = format_absa_report_for_line(
+            absa_payload,
+            chart_performance=chart_performance,
+        )
         insight = _insight_from_absa(absa_payload)
         return {
             "cached_at": absa_payload.get("generated_at", ""),
-            "artist": absa_payload.get("artist", ""),
+            "artist": artist,
             "period_months": period_months,
             "report": report,
             "insight": insight,
             "flex": self.build_flex_message(report, insight=insight),
             "sources": {
                 "absa": absa_payload,
+                "chart": weekly_chart,
             },
             "cache_type": "absa",
         }
@@ -1053,6 +1063,50 @@ def _format_chart_performance_lines(chart: dict[str, Any], weeks: int) -> str:
             f"- 排名趨勢：{chart.get('trend', '資料不足')}",
         ]
     )
+
+
+def _format_current_weekly_artist_chart_lines(
+    artist: str,
+    weekly_chart: dict[str, Any],
+) -> str:
+    chart_date = weekly_chart.get("chart_date") or "本週"
+    items = weekly_chart.get("items") or []
+    if not items:
+        return "- 本週 Bugs K-pop 榜單 Top 100：資料尚未更新"
+
+    pattern = ARTIST_PATTERNS.get(artist)
+    matches = []
+    for item in items:
+        item_artist = str(item.get("artist") or "")
+        if pattern and pattern.search(item_artist):
+            matches.append(item)
+        elif artist.casefold() in item_artist.casefold():
+            matches.append(item)
+
+    if not matches:
+        return f"- {chart_date} Bugs K-pop 榜單 Top 100：未上榜"
+
+    lines = [f"- {chart_date} Bugs K-pop 榜單 Top 100：上榜 {len(matches)} 首"]
+    for item in matches[:5]:
+        rank = item.get("rank", "N/A")
+        title = item.get("title", "未知歌曲")
+        change = _format_chart_change(item.get("change_rank"))
+        lines.append(f"- #{rank} {title}{change}")
+    if len(matches) > 5:
+        lines.append(f"- 另有 {len(matches) - 5} 首上榜歌曲。")
+    return "\n".join(lines)
+
+
+def _format_chart_change(change_rank: Any) -> str:
+    try:
+        change = int(change_rank)
+    except (TypeError, ValueError):
+        return ""
+    if change > 0:
+        return f"（上升 {change}）"
+    if change < 0:
+        return f"（下降 {abs(change)}）"
+    return "（持平）"
 
 
 def _local_trend_sentence(artist: str, chart: dict[str, Any]) -> str:

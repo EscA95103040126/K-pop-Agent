@@ -104,7 +104,10 @@ def test_analyze_message_local_prefers_absa_cache(monkeypatch, tmp_path) -> None
 
     report = agent.analyze_message_local("分析 aespa")
 
-    assert "ABSA cache hit" in report
+    assert "Bugs K-pop 榜單 Top 100" in report
+    assert "## 2. 粉絲與輿論反應" in report
+    assert "- 正面比例：1.0" in report
+    assert "歌曲／音樂性" not in report
 
 
 def test_analyze_endpoint_uses_local_absa_cache(monkeypatch) -> None:
