@@ -23,7 +23,7 @@ K-pop Agent 是一個已部署至 Hugging Face Space 的 LINE Bot 專案，將 K
 | 路線 | 說明 |
 | --- | --- |
 | 資料分析線 | 藝人分析報告、Bugs 榜單、Naver 新聞、YouTube 留言情感分析、Gemini 市場洞察 |
-| 互動體驗線 | Rich Menu、AI 入坑、每日一首 K-pop、Play Zone 測驗與抽卡 |
+| 互動體驗線 | Rich Menu、AI 入坑、每日一首 K-pop、我的 K-pop 口袋、Play Zone 測驗與抽卡 |
 
 核心目標不是只回覆固定文字，而是把資料與互動流程包裝成 LINE 使用者可以直接點選、抽取、測驗與追問的 Bot 體驗。
 
@@ -112,13 +112,40 @@ AI 入坑支援自然語言偏好，例如：
 
 | 類型 | 資料來源 |
 | --- | --- |
-| 每日 MV | `data/play_zone/daily_mv.csv` |
+| 每日 MV | `data/play_zone/daily_mv.csv` / Supabase `kpop_items` |
 | 每日直拍 | `data/play_zone/daily_fancam.csv` |
 | 每日舞台 | `data/play_zone/daily_stage.csv` |
 
 抽取結果會回傳純文字連結，讓 LINE 自動產生 YouTube 預覽，並附上可再次抽取的 Flex Message。
 
-### 5. K-pop Play Zone
+若 Supabase 已設定，`每日 MV` 會優先使用 `kpop_items` 做個人化推薦。使用者在「我的 K-pop 口袋」設定的 `preferred_gender` 會對應到 `kpop_items.gender_category`，因此可以只抽女團、男團或都可以。若 Supabase 未設定或查詢失敗，系統會回到 `daily_mv.csv` 的本地隨機抽取。
+
+`daily_mv.csv` 本身只存 `artist`、`title`、`url`，不直接存性別分類。分類是在匯入 Supabase 前由 `scripts/import_kpop_items.py` 補上：
+
+- 先從 `data/play_zone/bias_radar_members.csv` 的 `group_type` 建立藝人性別 lookup。
+- 再用 `MANUAL_ARTIST_GENDERS` 補齊 CSV 內沒有出現在本命雷達資料集的團體名稱。
+- 匯入後寫入 `kpop_items.gender_category`，每日 MV 推薦再用使用者的 `preferred_gender` 篩選。
+
+目前 MV 藝人分類已校正為：
+
+| 分類 | 藝人 |
+| --- | --- |
+| `boy_group` | ATEEZ, BOYNEXTDOOR, BSS, CRAVITY, DAY6, ENHYPEN, EXO, MONSTA X, NCT 127, NCT DREAM, NCT U, NCT WISH, SEVENTEEN, Stray Kids, TXT, ZEROBASEONE |
+| `girl_group` | aespa, BABYMONSTER, BLACKPINK, H1-KEY, Hearts2Hearts, i-dle, ILLIT, IVE, KISS OF LIFE, LE SSERAFIM, MEOVV, QWER, Red Velvet, Red Velvet X aespa, tripleS, TWICE |
+| `mixed` | ALLDAY PROJECT |
+
+### 5. 我的 K-pop 口袋
+
+我的 K-pop 口袋使用 Supabase 儲存使用者收藏與推薦偏好，包含：
+
+- `user_preferences.preferred_gender`：每日 MV 推薦偏好，可為 `girl_group`、`boy_group` 或 `all`。
+- `kpop_items.gender_category`：每筆 MV、直拍或照片的團體分類。
+- `user_saved_items`：使用者收藏的 MV、直拍與照片。
+- `user_draw_history`：每日 MV 已抽過的項目，用來降低重複推薦。
+
+使用者可以在 LINE 中查看收藏數、查看已收藏內容、修改每日 MV 推薦偏好，並從每日推薦、直拍或神圖抽卡結果加入收藏。
+
+### 6. K-pop Play Zone
 
 Play Zone 是互動遊玩區，目前包含：
 
@@ -129,7 +156,7 @@ Play Zone 是互動遊玩區，目前包含：
 | 認人測驗 | 顯示成員圖片並讓使用者選答案 | `member_quiz.csv`, `member_quiz_images/` |
 | 神圖抽卡 | 隨機抽取成員神圖或推薦內容 | `photo_cards.csv` |
 
-### 6. 榜單、新聞與情感分析
+### 7. 榜單、新聞與情感分析
 
 專案整合多個資料來源：
 
@@ -144,7 +171,7 @@ Play Zone 是互動遊玩區，目前包含：
 
 `本週榜單` 仍回覆資料庫中最新一週的 Bugs 前 10；若資料庫有更早週次，Bot 會額外顯示「歷史週次」按鈕，點選後回覆該週前 10。
 
-### 7. 離線 ABSA pipeline
+### 8. 離線 ABSA pipeline
 
 `分析 藝人` 的輿論面向分析不在 LINE webhook 內即時跑模型，也不在 webhook 內大量抓 YouTube 留言。正式流程是先執行離線批次：
 
@@ -195,6 +222,11 @@ Flask app.py
     |     +-- daily_mv.csv
     |     +-- Gemini / fallback
     |
+    +-- 我的 K-pop 口袋 / 每日 MV 個人化
+    |     +-- Supabase user_preferences
+    |     +-- Supabase kpop_items.gender_category
+    |     +-- Supabase user_saved_items / user_draw_history
+    |
     +-- Play Zone
     |     +-- 粉絲屬性測驗
     |     +-- 本命雷達
@@ -220,6 +252,7 @@ Flask app.py
 │   │   ├── chart_db.py            # SQLite 榜單查詢
 │   │   ├── naver_news.py          # Naver News API
 │   │   ├── sentiment.py           # 留言情感分析 fallback
+│   │   ├── kpop_radar.py          # Supabase K-pop 口袋、收藏與每日 MV 個人化
 │   │   └── absa.py                # 離線 ABSA cache schema / loader / analyzer
 │   └── utils/
 │       ├── response_formatter.py  # LINE 文字長度處理
@@ -229,6 +262,7 @@ Flask app.py
 │   ├── fetch_bugs_chart.py        # 抓取 Bugs 週榜
 │   ├── fetch_youtube_comments.py  # 抓取 YouTube 留言
 │   ├── build_absa_cache.py        # 離線 Naver + YouTube + KcELECTRA ABSA cache
+│   ├── import_kpop_items.py       # 將每日 MV、直拍與神圖資料匯入 Supabase kpop_items
 │   ├── label_sentiments.py        # Gemini 標註留言情感
 │   ├── preload_cache.py           # 預先產生藝人分析快取
 │   └── start.sh                   # 本機 ngrok + Flask 啟動輔助
@@ -236,6 +270,8 @@ Flask app.py
 │   ├── chart_history.db           # SQLite 榜單資料庫
 │   ├── sample_comments.csv        # 留言情感資料
 │   └── play_zone/                 # Play Zone CSV、JSON 與圖片素材
+├── supabase/
+│   └── kpop_radar_schema.sql      # K-pop 口袋 Supabase schema
 └── tests/                         # pytest 測試
 ```
 
@@ -258,6 +294,8 @@ cp .env.example .env
 | `GEMINI_API_KEY` | Gemini API key | 使用 AI 生成時填 |
 | `GEMINI_MODEL` | Gemini model name | 選填 |
 | `YOUTUBE_API_KEY` | YouTube Data API key | 抓留言時填 |
+| `SUPABASE_URL` | Supabase project URL | 啟用 K-pop 口袋與每日 MV 個人化時填 |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key | 啟用 K-pop 口袋與每日 MV 個人化時填 |
 | `DATABASE_PATH` | SQLite 資料庫位置 | 預設可用 |
 | `MOCK_DATA_DIR` | mock data 位置 | 預設可用 |
 | `PORT` | Flask port | HF 使用 `7860` |
@@ -339,6 +377,12 @@ python3 scripts/label_sentiments.py
 
 # 建立或更新 LINE Rich Menu
 python3 scripts/setup_rich_menu.py
+
+# 匯入每日 MV、直拍與神圖資料到 Supabase kpop_items
+python3 scripts/import_kpop_items.py
+
+# 僅檢查匯入資料數量，不寫入 Supabase
+python3 scripts/import_kpop_items.py --dry-run
 ```
 
 ## 測試
@@ -357,6 +401,7 @@ pytest
 - Naver News fallback
 - Sentiment classifier
 - Play Zone、每日一首、本命雷達、認人測驗與抽卡流程
+- K-pop 口袋、Supabase 每日 MV 推薦與收藏流程
 
 ## 技術棧
 
@@ -377,5 +422,5 @@ pytest
 - 已部署至 Hugging Face Space
 - 已整合 LINE webhook 與 Rich Menu
 - 已完成藝人分析、榜單、新聞、情感分析與 Gemini insight
-- 已完成 AI 入坑、每日一首、Play Zone 測驗與抽卡
+- 已完成 AI 入坑、每日一首、我的 K-pop 口袋、Play Zone 測驗與抽卡
 - 已提供本地 fallback 與 mock data，方便無 API key 的展示與測試

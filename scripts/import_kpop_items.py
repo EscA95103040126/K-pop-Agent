@@ -26,6 +26,7 @@ MANUAL_ARTIST_GENDERS = {
     "2pm": "boy_group",
     "alldayproject": "mixed",
     "astro": "boy_group",
+    "boynextdoor": "boy_group",
     "bss": "boy_group",
     "cortis": "boy_group",
     "cravity": "boy_group",
@@ -33,6 +34,7 @@ MANUAL_ARTIST_GENDERS = {
     "gotthebeat": "girl_group",
     "got7": "boy_group",
     "ioi": "girl_group",
+    "idle": "girl_group",
     "itzy": "girl_group",
     "izone": "girl_group",
     "monstax": "boy_group",
@@ -42,12 +44,14 @@ MANUAL_ARTIST_GENDERS = {
     "nctu": "boy_group",
     "nctwish": "boy_group",
     "nexz": "boy_group",
-    "redvelvetxaespa": "mixed",
+    "redvelvetxaespa": "girl_group",
     "riize": "boy_group",
     "superjunior": "boy_group",
     "treasure": "boy_group",
+    "triples": "girl_group",
     "tws": "boy_group",
     "verivery": "boy_group",
+    "zerobaseone": "boy_group",
 }
 
 
