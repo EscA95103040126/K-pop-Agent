@@ -977,7 +977,8 @@ def test_ai_curator_reason_followup_runs_after_fixed_analyze_routes(monkeypatch)
     assert daily_fancam["report"].startswith("🎵 今日推薦 直拍")
     assert radar["report"].startswith("本命雷達測驗 Q1/5")
     assert fan_attribute["report"].startswith("粉絲屬性測驗 Q1/5")
-    assert artist_report["cache"]["type"] == "artist"
+    assert artist_report["cache"]["type"] == "absa"
+    assert artist_report["cache"]["artist"] == "aespa"
     assert reason["report"].startswith("✨ 我會先推 NMIXX Sullyoon")
     assert "flex" not in reason
 
@@ -1033,7 +1034,7 @@ def test_analyze_artist_payload_is_used_when_message_has_no_artist() -> None:
     payload = response.get_json()
 
     assert response.status_code == 200
-    assert payload["cache"]["type"] == "artist"
+    assert payload["cache"]["type"] == "absa"
     assert payload["cache"]["artist"] == "aespa"
 
 

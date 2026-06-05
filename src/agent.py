@@ -15,6 +15,7 @@ from src.config import Settings, settings
 from src.router import ARTIST_PATTERNS, Intent, route_message
 from src.tools.chart_db import ChartHistoryRepository
 from src.tools.naver_news import NaverNewsClient
+from src.tools.absa import load_absa_cache
 from src.tools.sentiment import analyze_sentiment_from_csv
 
 logger = logging.getLogger(__name__)
@@ -101,7 +102,10 @@ class KpopAnalysisAgent:
         if intent.artist not in SUPPORTED_ARTISTS:
             return _unsupported_artist_message(intent.artist)
 
-        return self.get_artist_cache(intent.artist, period_months=intent.period_months)["report"]
+        return self.get_artist_analysis_cache(
+            intent.artist,
+            period_months=intent.period_months,
+        )["report"]
 
     def answer_kpop_question(self, question: str) -> str:
         if route_message(question).name == "weekly_chart":
@@ -111,7 +115,7 @@ class KpopAnalysisAgent:
         if not artists:
             return _kpop_scope_message()
 
-        artist_payloads = [self.get_artist_cache(artist) for artist in artists[:3]]
+        artist_payloads = [self.get_artist_analysis_cache(artist) for artist in artists[:3]]
         fallback = _fallback_small_analysis(question=question, payloads=artist_payloads)
         if self.config.use_gemini_mock:
             return fallback
@@ -170,6 +174,32 @@ class KpopAnalysisAgent:
                 ):
                     return payload
         return self.preload_artist_cache(artist=artist, period_months=period_months)
+
+    def get_artist_analysis_cache(self, artist: str, period_months: int = 3) -> dict[str, Any]:
+        absa_payload = load_absa_cache(artist)
+        if absa_payload:
+            return self._artist_cache_from_absa(absa_payload, period_months=period_months)
+        return self.get_artist_cache(artist=artist, period_months=period_months)
+
+    def _artist_cache_from_absa(
+        self,
+        absa_payload: dict[str, Any],
+        period_months: int = 3,
+    ) -> dict[str, Any]:
+        report = str(absa_payload.get("report_text") or "")
+        insight = _insight_from_absa(absa_payload)
+        return {
+            "cached_at": absa_payload.get("generated_at", ""),
+            "artist": absa_payload.get("artist", ""),
+            "period_months": period_months,
+            "report": report,
+            "insight": insight,
+            "flex": self.build_flex_message(report, insight=insight),
+            "sources": {
+                "absa": absa_payload,
+            },
+            "cache_type": "absa",
+        }
 
     def preload_artist_cache(self, artist: str, period_months: int = 3) -> dict[str, Any]:
         ARTIST_CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -512,13 +542,37 @@ def build_report_flex(
     sections = _extract_report_sections(report)
     artist_name = _extract_artist_name(report)
     summary = _section_body(sections.get("5", "")).strip() or "分析報告已產生。"
+    market_insight_section = _find_report_section(
+        sections,
+        title="市場洞察",
+        fallback_numbers=("4",),
+    )
 
     block_configs = [
-        ("榜單表現", sections.get("1", "")),
-        ("粉絲與輿論反應", sections.get("3", "")),
-        ("綜合判斷", sections.get("4", "")),
+        (
+            "榜單表現",
+            _find_report_section(sections, title="榜單表現", fallback_numbers=("1",)),
+        ),
+        (
+            "粉絲與輿論反應",
+            _find_report_section(
+                sections,
+                title="粉絲與輿論反應",
+                fallback_numbers=("3", "2"),
+            ),
+        ),
+        (
+            "綜合判斷",
+            _find_report_section(
+                sections,
+                title="綜合判斷",
+                fallback_numbers=("4", "3"),
+            ),
+        ),
     ]
-    if _has_insight(insight):
+    if market_insight_section and "市場洞察" in market_insight_section.splitlines()[0]:
+        block_configs.append(("市場洞察", _section_body(market_insight_section)))
+    elif _has_insight(insight):
         block_configs.append(("市場洞察", _format_insight_block(insight or {})))
 
     body_contents: list[dict[str, Any]] = []
@@ -659,6 +713,21 @@ def _section_body(section: str) -> str:
     return "\n".join(lines)
 
 
+def _find_report_section(
+    sections: dict[str, str],
+    title: str,
+    fallback_numbers: tuple[str, ...],
+) -> str:
+    for section in sections.values():
+        first_line = section.splitlines()[0] if section else ""
+        if title in first_line:
+            return section
+    for number in fallback_numbers:
+        if sections.get(number):
+            return sections[number]
+    return ""
+
+
 def _truncate(text: str, max_length: int) -> str:
     if len(text) <= max_length:
         return text
@@ -741,6 +810,36 @@ def _fallback_insight(
         "risk": _sentiment_risk(negative),
         "opportunity": _fallback_opportunity(best_rank=best_rank, positive=positive),
     }
+
+
+def _insight_from_absa(payload: dict[str, Any]) -> dict[str, str]:
+    overall = payload.get("overall_sentiment", {}).get("ratio", {})
+    positive = _safe_float(overall.get("positive", 0))
+    negative = _safe_float(overall.get("negative", 0))
+    artist = str(payload.get("artist") or "該藝人")
+    dominant = str(payload.get("overall_sentiment", {}).get("dominant") or "neutral")
+    if positive >= 0.55:
+        headline = f"{artist}離線口碑偏正向"
+    elif negative >= 0.35:
+        headline = f"{artist}輿論需留意"
+    else:
+        headline = f"{artist}討論度穩定"
+    return {
+        "headline": _clean_insight_text(headline, max_length=28) or f"{artist}討論度穩定",
+        "risk": _sentiment_risk(negative),
+        "opportunity": _clean_insight_text(
+            f"放大{_localized_sentiment(dominant)}面向聲量",
+            max_length=28,
+        ),
+    }
+
+
+def _localized_sentiment(label: str) -> str:
+    return {
+        "positive": "正面",
+        "neutral": "中性",
+        "negative": "負面",
+    }.get(label, "中性")
 
 
 def _fallback_insight_headline(artist: str, best_rank: Any, positive: float) -> str:

@@ -1,0 +1,11 @@
+artist,generated_at,overall_positive,overall_neutral,overall_negative,comment_count,news_count,model_backend
+aespa,2026-06-05T08:59:18.440714+00:00,0.5,0.5,0.0,20,10,keyword-fallback
+IVE,2026-06-05T08:59:18.797243+00:00,0.4667,0.5333,0.0,20,10,keyword-fallback
+BABYMONSTER,2026-06-05T08:59:19.117285+00:00,0.2,0.8,0.0,20,10,keyword-fallback
+NMIXX,2026-06-05T08:59:19.436059+00:00,0.3,0.7,0.0,20,10,keyword-fallback
+ILLIT,2026-06-05T08:59:19.750929+00:00,0.1333,0.8667,0.0,20,10,keyword-fallback
+NCT,2026-06-05T08:59:20.069150+00:00,0.3,0.7,0.0,20,10,keyword-fallback
+ZEROBASEONE,2026-06-05T08:59:20.418668+00:00,0.4667,0.4333,0.1,20,10,keyword-fallback
+TXT,2026-06-05T08:59:20.713208+00:00,0.4,0.5667,0.0333,20,10,keyword-fallback
+ENHYPEN,2026-06-05T08:59:21.025758+00:00,0.3667,0.6333,0.0,20,10,keyword-fallback
+BOYNEXTDOOR,2026-06-05T08:59:21.344184+00:00,0.3667,0.6333,0.0,20,10,keyword-fallback

@@ -7,4 +7,7 @@ __pycache__/
 .coverage
 instance/
 *.pyc
-data/cache/
+data/cache/*
+!data/cache/absa/
+!data/cache/absa/*.json
+!data/cache/absa/summary.csv

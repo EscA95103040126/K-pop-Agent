@@ -75,11 +75,11 @@ scripts/setup_rich_menu.py
 分析 NCT
 ```
 
-Bot 會回傳包含以下內容的分析報告：
+Bot 會優先讀取離線產生的 ABSA cache，回傳包含以下內容的分析報告：
 
 - 藝人基本分析
 - Bugs 榜單表現
-- YouTube 留言情感比例
+- YouTube 韓文留言 ABSA / 情感比例
 - Naver 近期新聞摘要
 - Gemini 市場洞察
 - LINE Flex Message 視覺化卡片
@@ -138,10 +138,38 @@ Play Zone 是互動遊玩區，目前包含：
 | Bugs Chart | K-pop 週榜爬取與 SQLite 儲存 | `src/tools/bugs_chart.py`, `src/tools/chart_db.py` |
 | Naver News | 查詢藝人近期新聞 | `src/tools/naver_news.py` |
 | YouTube Comments | 抓取韓文留言 | `scripts/fetch_youtube_comments.py` |
-| Sentiment CSV | 預標註留言情感分析 | `src/tools/sentiment.py`, `data/sample_comments.csv` |
+| Offline ABSA | 對新聞與留言做面向式情感分析，輸出本地 cache | `src/tools/absa.py`, `scripts/build_absa_cache.py`, `data/cache/absa/*.json` |
+| Sentiment CSV | 預標註留言情感分析 fallback | `src/tools/sentiment.py`, `data/sample_comments.csv` |
 | Gemini | 市場洞察、AI 入坑、推薦原因生成 | `src/agent.py`, `app.py` |
 
 `本週榜單` 仍回覆資料庫中最新一週的 Bugs 前 10；若資料庫有更早週次，Bot 會額外顯示「歷史週次」按鈕，點選後回覆該週前 10。
+
+### 7. 離線 ABSA pipeline
+
+`分析 藝人` 的輿論面向分析不在 LINE webhook 內即時跑模型，也不在 webhook 內大量抓 YouTube 留言。正式流程是先執行離線批次：
+
+```bash
+python3 scripts/build_absa_cache.py
+```
+
+批次腳本會：
+
+- 透過 Naver News API 抓取每位藝人近期新聞；API 不可用時沿用既有 mock fallback。
+- 透過 YouTube Data API 抓取韓文留言；若未提供 `YOUTUBE_API_KEY` 可用 `--use-sample-comments` 讀取 `data/sample_comments.csv`。
+- 使用 KcELECTRA sentiment/ABSA model 做韓文新聞與留言情感分類；若批次環境未安裝 `transformers` / `torch`，腳本會降級為 keyword fallback，仍維持相同 JSON schema。
+- 依五個面向輸出 `data/cache/absa/{artist}.json`，另輸出 `data/cache/absa/summary.csv`。
+
+支援面向：
+
+```text
+song / music
+performance
+visual / styling
+vocal / rap
+fandom / public_opinion
+```
+
+LINE Bot 收到 `分析 aespa`、`分析 IVE` 等完整藝人分析指令時，會先讀 `data/cache/absa/{artist}.json`。若 ABSA cache 不存在或 schema 無效，才回到既有 `data/cache/artists/{artist}.json` / 本地 fallback 流程。
 
 ## 系統架構
 
@@ -158,8 +186,8 @@ Flask app.py
     |
     +-- 藝人分析
     |     +-- Bugs Chart SQLite
-    |     +-- Naver News API
-    |     +-- Sentiment CSV
+    |     +-- Offline ABSA JSON cache
+    |     +-- Artist cache fallback
     |     +-- Gemini Insight
     |
     +-- AI 入坑
@@ -191,7 +219,8 @@ Flask app.py
 │   │   ├── bugs_chart.py          # Bugs 榜單爬蟲/parser
 │   │   ├── chart_db.py            # SQLite 榜單查詢
 │   │   ├── naver_news.py          # Naver News API
-│   │   └── sentiment.py           # 留言情感分析
+│   │   ├── sentiment.py           # 留言情感分析 fallback
+│   │   └── absa.py                # 離線 ABSA cache schema / loader / analyzer
 │   └── utils/
 │       ├── response_formatter.py  # LINE 文字長度處理
 │       └── text_cleaner.py        # 文字清理
@@ -199,6 +228,7 @@ Flask app.py
 │   ├── setup_rich_menu.py         # 建立 LINE Rich Menu
 │   ├── fetch_bugs_chart.py        # 抓取 Bugs 週榜
 │   ├── fetch_youtube_comments.py  # 抓取 YouTube 留言
+│   ├── build_absa_cache.py        # 離線 Naver + YouTube + KcELECTRA ABSA cache
 │   ├── label_sentiments.py        # Gemini 標註留言情感
 │   ├── preload_cache.py           # 預先產生藝人分析快取
 │   └── start.sh                   # 本機 ngrok + Flask 啟動輔助

@@ -24,11 +24,16 @@ class NaverNewsClient:
             return self._load_mock(artist)
 
         try:
-            payload = self._request_real(artist=artist, display=display)
+            payload = self._request_real(
+                artist=artist,
+                display=min(max(display * 3, display), 100),
+            )
         except requests.RequestException as exc:
             logger.warning("Naver News API failed; falling back to mock data: %s", exc)
             return self._load_mock(artist)
-        return [self._normalize_item(item) for item in payload.get("items", [])]
+        items = [self._normalize_item(item) for item in payload.get("items", [])]
+        filtered_items = self._filter_artist_items(artist, items)
+        return (filtered_items or items)[:display]
 
     def real_api_available(self) -> bool:
         if self.config.use_naver_mock:
@@ -47,7 +52,7 @@ class NaverNewsClient:
         params = {
             "query": self._build_query(artist),
             "display": display,
-            "sort": "date",
+            "sort": "sim",
         }
         response = requests.get(NAVER_NEWS_URL, headers=headers, params=params, timeout=8)
         response.raise_for_status()
@@ -61,12 +66,39 @@ class NaverNewsClient:
         return json.loads(mock_path.read_text(encoding="utf-8"))
 
     def _build_query(self, artist: str) -> str:
-        artist_keywords = {
-            "aespa": "에스파",
-            "IVE": "아이브",
-            "NewJeans": "뉴진스",
+        aliases = self._artist_aliases(artist)
+        return " ".join(aliases[:2]) if aliases else artist
+
+    def _filter_artist_items(
+        self,
+        artist: str,
+        items: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        aliases = [alias.casefold() for alias in self._artist_aliases(artist)]
+        if not aliases:
+            return items
+        filtered = []
+        for item in items:
+            text = f"{item.get('title', '')} {item.get('summary', '')}".casefold()
+            if any(alias in text for alias in aliases):
+                filtered.append(item)
+        return filtered
+
+    def _artist_aliases(self, artist: str) -> list[str]:
+        artist_aliases = {
+            "aespa": ["에스파", "aespa"],
+            "IVE": ["아이브", "IVE"],
+            "BABYMONSTER": ["베이비몬스터", "BABYMONSTER", "BABY MONSTER"],
+            "NMIXX": ["엔믹스", "NMIXX"],
+            "ILLIT": ["아일릿", "ILLIT"],
+            "NCT": ["엔시티", "NCT"],
+            "ZEROBASEONE": ["제로베이스원", "ZEROBASEONE", "ZB1"],
+            "TXT": ["투모로우바이투게더", "TXT", "투바투"],
+            "ENHYPEN": ["엔하이픈", "ENHYPEN"],
+            "BOYNEXTDOOR": ["보이넥스트도어", "BOYNEXTDOOR", "BOY NEXT DOOR"],
+            "NewJeans": ["뉴진스", "NewJeans"],
         }
-        return artist_keywords.get(artist, artist)
+        return artist_aliases.get(artist, [artist])
 
     def _normalize_item(self, item: dict[str, Any]) -> dict[str, Any]:
         return {

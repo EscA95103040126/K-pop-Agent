@@ -29,6 +29,7 @@ Bot 會回覆：
 - Gemini API
 - Naver News API
 - YouTube Data API
+- KcELECTRA offline ABSA
 - SQLite
 - CSV
 - JSON cache
@@ -133,12 +134,69 @@ sentiment
 
 ---
 
-### 3.4 Gemini API
+### 3.4 Offline ABSA / KcELECTRA
 
 用途：
 
-1. 對 YouTube 留言做零樣本情感分類
-2. 生成每位藝人的市場洞察 insight
+- 在離線批次階段抓取 Naver News 與 YouTube 韓文留言
+- 使用 KcELECTRA sentiment/ABSA model 對韓文新聞與留言做面向式情感分析
+- 預先輸出本地 JSON / CSV，供 LINE Bot 低延遲讀取
+- webhook 不即時跑 KcELECTRA，也不即時大量呼叫 YouTube API
+
+主要檔案：
+
+```text
+src/tools/absa.py
+scripts/build_absa_cache.py
+data/cache/absa/{artist}.json
+data/cache/absa/summary.csv
+```
+
+支援 ABSA 面向：
+
+```text
+song / music
+performance
+visual / styling
+vocal / rap
+fandom / public_opinion
+```
+
+JSON schema 至少包含：
+
+```json
+{
+  "artist": "aespa",
+  "generated_at": "...",
+  "sources": {},
+  "aspect_sentiment": {},
+  "overall_sentiment": {},
+  "top_comments_or_evidence": [],
+  "naver_news_summary": [],
+  "report_text": "..."
+}
+```
+
+批次命令：
+
+```bash
+python3 scripts/build_absa_cache.py
+```
+
+若本機沒有大型模型依賴，可先用 sample comments 產生測試用 cache：
+
+```bash
+python3 scripts/build_absa_cache.py --no-model --use-sample-comments
+```
+
+---
+
+### 3.5 Gemini API
+
+用途：
+
+1. 生成每位藝人的市場洞察 insight
+2. 支援 AI 入坑與推薦理由文字
 3. 在 cache 預生成階段使用，不在每次 LINE 訊息即時大量呼叫
 
 主要檔案：
@@ -171,7 +229,35 @@ Insight JSON 格式：
 
 ## 4. 快取系統
 
-### 4.1 Artist Cache
+### 4.1 ABSA Cache
+
+每位支援藝人會先生成一份離線 ABSA cache。
+
+位置：
+
+```text
+data/cache/absa/{artist}.json
+```
+
+例如：
+
+```text
+data/cache/absa/aespa.json
+data/cache/absa/ive.json
+data/cache/absa/nct.json
+```
+
+用途：
+
+- LINE Bot 收到 `分析 藝人名` 時優先讀取
+- 降低 webhook 延遲
+- 避免即時跑 KcELECTRA / Transformers
+- 避免即時大量呼叫 YouTube Data API
+- 若檔案不存在或 schema 無效，回到 Artist Cache fallback
+
+---
+
+### 4.2 Artist Cache
 
 每位藝人會生成一份本地 JSON cache。
 
@@ -221,13 +307,13 @@ python3 scripts/preload_cache.py
 
 用途：
 
-- LINE Bot 收到 `分析 藝人名` 時，直接讀取 cache
+- ABSA cache 缺失時的既有 fallback
 - 避免每次訊息都即時呼叫 Gemini / Naver / YouTube
 - 提升回覆速度與穩定性
 
 ---
 
-### 4.2 Weekly Chart Cache
+### 4.3 Weekly Chart Cache
 
 位置：
 
@@ -268,9 +354,11 @@ route_message()
   ↓
 判斷為 artist analysis
   ↓
-KpopAnalysisAgent.get_artist_cache("aespa")
+KpopAnalysisAgent.get_artist_analysis_cache("aespa")
   ↓
-讀取 data/cache/artists/aespa.json
+優先讀取 data/cache/absa/aespa.json
+  ↓
+若 ABSA cache 不存在，fallback 到 data/cache/artists/aespa.json
   ↓
 取得 flex JSON
   ↓

@@ -430,14 +430,14 @@ def analyze() -> tuple[dict, int]:
             "flex": None,
         }
     elif analysis_artist and (artist or _is_full_artist_report_request(message)):
-        artist_cache = agent.get_artist_cache(
+        artist_cache = agent.get_artist_analysis_cache(
             analysis_artist,
             period_months=intent.period_months,
         )
         response = {
             "report": artist_cache["report"],
             "cache": {
-                "type": "artist",
+                "type": artist_cache.get("cache_type", "artist"),
                 "artist": artist_cache["artist"],
                 "cached_at": artist_cache["cached_at"],
             },
@@ -4445,7 +4445,7 @@ if line_handler is not None and MessageEvent is not None and TextMessageContent 
                     )
                 elif _is_full_artist_report_request(user_text):
                     intent = route_message(user_text)
-                    artist_cache = agent.get_artist_cache(
+                    artist_cache = agent.get_artist_analysis_cache(
                         intent.artist,
                         period_months=intent.period_months,
                     )
