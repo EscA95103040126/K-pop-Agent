@@ -1109,6 +1109,32 @@ def test_weekly_chart_history_quick_reply_excludes_current_week(monkeypatch) -> 
     assert action.text == "歷史週榜:2026-05-11"
 
 
+def test_weekly_chart_history_quick_reply_orders_oldest_to_newest(monkeypatch) -> None:
+    monkeypatch.setattr(
+        app_module,
+        "agent",
+        SimpleNamespace(
+            list_weekly_chart_dates=lambda limit=13, min_items=1: [
+                "2026-06-01",
+                "2026-05-25",
+                "2026-05-18",
+                "2026-05-11",
+            ]
+        ),
+    )
+
+    qr = app_module._build_weekly_chart_history_quick_reply(
+        current_chart_date="2026-06-01"
+    )
+
+    assert qr is not None
+    assert [item.action.label for item in qr.items] == [
+        "📅 5/11-5/17",
+        "📅 5/18-5/24",
+        "📅 5/25-5/31",
+    ]
+
+
 def test_bias_radar_session_prunes_expired_session(monkeypatch) -> None:
     app_module.bias_radar_sessions.clear()
     app_module.bias_radar_sessions["expired-user"] = {

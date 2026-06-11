@@ -1497,6 +1497,7 @@ def _build_weekly_chart_history_quick_reply(
         for chart_date in agent.list_weekly_chart_dates(limit=limit + 1, min_items=1)
         if chart_date and chart_date != current_chart_date
     ][:limit]
+    chart_dates = list(reversed(chart_dates))
     if not chart_dates:
         return None
     return QuickReply(
