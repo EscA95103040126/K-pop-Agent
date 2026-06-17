@@ -1985,6 +1985,41 @@ def _is_ai_curator_preference_request(message: str) -> bool:
     has_action = any(action in compact for action in preference_actions)
     has_preference_term = any(term in compact for term in preference_terms)
     has_member_target = any(term in compact for term in member_target_terms)
+    persona_terms = (
+        "姐系",
+        "御姐",
+        "忙內",
+        "弟系",
+        "maknae",
+        "奶狗",
+        "弟弟",
+        "弟感",
+        "鄰家",
+        "邻家",
+        "氛圍",
+        "氛围",
+        "元氣",
+        "元气",
+        "痞帥",
+        "痞帅",
+        "知性",
+        "治癒",
+        "治愈",
+        "療癒",
+        "疗愈",
+        "綜藝擔",
+        "综艺担",
+        "性感",
+        "憂鬱",
+        "忧郁",
+        "陽光",
+        "阳光",
+        "王子",
+        "野性",
+    )
+    has_persona_term = any(term in compact for term in persona_terms)
+    if has_persona_term:
+        return True
     return (has_action and (has_preference_term or artist_mentioned)) or (
         has_member_target and (has_preference_term or artist_mentioned)
     )
@@ -2317,7 +2352,7 @@ def _clean_ai_curator_query(message: str) -> str:
 
 
 def _build_ai_curator_context(query: str) -> dict:
-    profile = _extract_ai_curator_preferences(query)
+    profile = _resolve_ai_curator_profile(query)
     mv_artists = {
         row.get("artist", "").strip()
         for row in _load_daily_kpop_rows("MV")
@@ -2340,7 +2375,25 @@ def _build_ai_curator_context(query: str) -> dict:
         "artist_summaries": _load_ai_curator_artist_summaries(artist_candidates[:3]),
         "primary_artist": artist_candidates[0] if artist_candidates else None,
         "recommended_artists": recommended_artists,
+        "low_confidence": not _ai_curator_profile_has_signal(profile),
     }
+
+
+# Controlled vocabulary for AI curator preferences. Both the keyword fallback and the
+# Gemini-based parser must only ever emit labels from these sets, because the recommender
+# matches them against the tag columns in bias_radar_members.csv.
+AI_CURATOR_PROFILE_FIELDS = ("appearance", "position", "vibe", "relationship", "persona")
+AI_CURATOR_PROFILE_VOCAB: dict[str, tuple[str, ...]] = {
+    "appearance": ("貓咪", "狗狗", "小兔", "狐狸", "小鹿"),
+    "position": ("Vocal", "Dance", "Rap", "Visual", "All-rounder"),
+    "vibe": ("冷感", "甜系", "霸氣", "反差", "清冷"),
+    "relationship": ("戀愛感", "神性", "朋友感", "白月光感", "舞台支配感"),
+    "persona": (
+        "姐系", "忙內", "鄰家", "氛圍", "元氣", "痞帥",
+        "知性", "治癒", "綜藝擔", "性感", "憂鬱感", "陽光",
+        "王子", "野性",
+    ),
+}
 
 
 def _extract_ai_curator_preferences(query: str) -> dict[str, set[str] | str | None]:
@@ -2357,7 +2410,7 @@ def _extract_ai_curator_preferences(query: str) -> dict[str, set[str] | str | No
             compact,
             {
                 "貓咪": ("貓", "貓咪", "cat"),
-                "狗狗": ("狗", "狗狗", "dog"),
+                "狗狗": ("狗狗", "狗系", "狗狗相", "dog"),
                 "小兔": ("兔", "兔子", "小兔", "rabbit"),
                 "狐狸": ("狐", "狐狸", "fox"),
                 "小鹿": ("鹿", "小鹿", "deer"),
@@ -2393,8 +2446,136 @@ def _extract_ai_curator_preferences(query: str) -> dict[str, set[str] | str | No
                 "舞台支配感": ("舞台支配", "舞台支配感", "壓場", "舞台強"),
             },
         ),
+        "persona": _keyword_matches(
+            compact,
+            {
+                "姐系": ("姐系", "御姐", "姐姐", "大人感", "成熟", "氣場姐", "姐感"),
+                "忙內": ("忙內", "弟系", "maknae", "奶狗", "弟弟", "弟感"),
+                "鄰家": ("鄰家", "清純", "親和", "鄰家感", "好親近"),
+                "氛圍": ("氛圍", "氛圍感", "高級感", "神秘", "距離感"),
+                "元氣": ("元氣", "活潑", "開朗", "活力", "能量"),
+                "痞帥": ("痞帥", "痞痞", "壞壞", "壞男孩", "玩世不恭"),
+                "知性": ("知性", "才氣", "文藝", "書卷", "才華"),
+                "治癒": ("治癒", "療癒", "溫柔", "暖男", "暖系"),
+                "綜藝擔": ("綜藝", "綜藝擔", "搞笑", "諧星", "梗王"),
+                "性感": ("性感", "魅惑", "火辣", "sexy"),
+                "憂鬱感": ("憂鬱", "憂鬱感", "厭世", "陰鬱", "喪"),
+                "陽光": ("陽光", "大男孩", "陽光男孩", "活力外放"),
+                "王子": ("王子", "貴公子", "王子系", "紳士", "優雅"),
+                "野性": ("野性", "猛男", "狼系", "man味", "性張力"),
+            },
+        ),
     }
     return {"gender": gender, **tags}
+
+
+def _resolve_ai_curator_profile(query: str) -> dict[str, set[str] | str | None]:
+    """Resolve a query into a preference profile.
+
+    Gemini does the semantic understanding (so free-text like "姐系" maps onto the
+    controlled vocabulary); the keyword matcher is a deterministic fallback that also
+    contributes whatever it can match. The two results are merged so we never do worse
+    than the old keyword-only behaviour.
+    """
+
+    base = _extract_ai_curator_preferences(query)
+    parsed = _extract_ai_curator_preferences_via_gemini(query)
+    if not parsed:
+        return base
+
+    merged: dict[str, set[str] | str | None] = dict(base)
+    if not merged.get("gender") and parsed.get("gender"):
+        merged["gender"] = parsed["gender"]
+    for field in AI_CURATOR_PROFILE_FIELDS:
+        base_tags = base.get(field) or set()
+        parsed_tags = parsed.get(field) or set()
+        merged[field] = set(base_tags) | set(parsed_tags)
+    return merged
+
+
+def _ai_curator_profile_has_signal(profile: dict) -> bool:
+    if profile.get("artists"):
+        return True
+    return any(profile.get(field) for field in AI_CURATOR_PROFILE_FIELDS)
+
+
+def _extract_ai_curator_preferences_via_gemini(query: str) -> dict | None:
+    if getattr(settings, "use_gemini_mock", True):
+        return None
+    try:
+        prompt = _build_ai_curator_profile_prompt(query)
+        response = requests.post(
+            GEMINI_API_URL.format(model=settings.gemini_model),
+            params={"key": settings.gemini_api_key},
+            json={
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature": 0.0,
+                    "maxOutputTokens": 220,
+                    "responseMimeType": "application/json",
+                },
+            },
+            timeout=GEMINI_REQUEST_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        data = response.json()
+        text = data["candidates"][0]["content"]["parts"][0].get("text", "")
+        return _parse_ai_curator_profile_json(text)
+    except Exception:
+        logger.warning("AI curator profile parse via Gemini failed; using keyword fallback.")
+        return None
+
+
+def _build_ai_curator_profile_prompt(query: str) -> str:
+    vocab_lines = "\n".join(
+        f"- {field}: {', '.join(labels)}"
+        for field, labels in AI_CURATOR_PROFILE_VOCAB.items()
+    )
+    return f"""你是 K-pop 偏好解析器。請把使用者的自然語言需求對應到下方「允許的標籤」，輸出 JSON。
+規則：
+- 只能使用下方列出的標籤，禁止自創新標籤；語意接近就對應過去（例如「姐系/御姐/成熟」對應 persona 的「姐系」）。
+- 每個欄位可給 0 到多個標籤；完全沒提到就給空陣列。
+- gender 只能是 "male"、"female" 或 null。
+- 只輸出 JSON，不要任何說明文字。
+
+允許的標籤：
+{vocab_lines}
+
+輸出格式：
+{{"gender": null, "appearance": [], "position": [], "vibe": [], "relationship": [], "persona": []}}
+
+使用者需求：
+{query}"""
+
+
+def _parse_ai_curator_profile_json(text: str) -> dict | None:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        if cleaned.lower().startswith("json"):
+            cleaned = cleaned[4:]
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        return None
+    try:
+        raw = json.loads(cleaned[start : end + 1])
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+
+    gender = raw.get("gender")
+    if gender not in ("male", "female"):
+        gender = None
+    profile: dict[str, set[str] | str | None] = {"gender": gender}
+    for field, allowed in AI_CURATOR_PROFILE_VOCAB.items():
+        values = raw.get(field) or []
+        if isinstance(values, str):
+            values = [values]
+        allowed_set = set(allowed)
+        profile[field] = {value for value in values if value in allowed_set}
+    return profile
 
 
 def _extract_ai_curator_artist_preferences(compact_query: str) -> set[str]:
@@ -2451,7 +2632,7 @@ def _rank_bias_radar_members_for_curator(profile: dict) -> list[dict[str, str]]:
             score += 3
         elif not gender:
             score += 1
-        for field in ("appearance", "position", "vibe", "relationship"):
+        for field in AI_CURATOR_PROFILE_FIELDS:
             wanted = profile.get(field) or set()
             matched = wanted & _split_bias_radar_tags(member.get(field, ""))
             score += len(matched) * 2
@@ -2626,7 +2807,7 @@ def _build_ai_curator_prompt(query: str, context: dict) -> str:
         (
             f"- {member.get('artist')} {member.get('member')}: "
             f"position={member.get('position')}; vibe={member.get('vibe')}; "
-            f"relationship={member.get('relationship')}"
+            f"relationship={member.get('relationship')}; persona={member.get('persona')}"
         )
         for member in context["member_candidates"][:5]
     ]
@@ -2638,12 +2819,18 @@ def _build_ai_curator_prompt(query: str, context: dict) -> str:
         f"- {item['artist']}: {item['chart']}; {item['sentiment']}; insight={item['insight']}"
         for item in context["artist_summaries"]
     ]
+    low_confidence_note = (
+        "（注意：這次沒有解析到明確的偏好條件，下方候選是依大方向挑的；"
+        "請在開頭用一句話誠實說明，並邀請使用者補充想要的風格，再給推薦。）\n"
+        if context.get("low_confidence")
+        else ""
+    )
     return f"""你是 K-pop 入坑指南，請用繁體中文根據使用者偏好做自然語言推薦。
 只能根據下方候選資料回答，不要捏造不存在的資料。
 回答 5 行以內，口吻像 LINE Bot，清楚給 2-3 個推薦與下一步。
 不要使用英文。不要評論候選資料是否完全符合；請從候選中選最接近者給出推薦。
 今日入口必須從「推薦 MV 候選」選一首，且藝人必須屬於本命候選前 3 位的所屬團體。
-
+{low_confidence_note}
 使用者偏好：
 {query}
 

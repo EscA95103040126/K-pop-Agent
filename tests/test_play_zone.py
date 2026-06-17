@@ -47,6 +47,7 @@ def test_bias_radar_members_csv_is_readable_and_large_enough() -> None:
         "position",
         "vibe",
         "relationship",
+        "persona",
         "url",
         "source_url",
     }
