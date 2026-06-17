@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import app as app_module
 from app import app
+from src.tools.kpop_radar import KpopRadarRepository, SupabaseRestClient
 
 
 class FakeSaveResult:
@@ -87,6 +88,43 @@ class FakeRadarRepository:
 
 class DisabledRadarRepository(FakeRadarRepository):
     enabled = False
+
+
+def test_supabase_client_accepts_rest_endpoint_url() -> None:
+    client = SupabaseRestClient(
+        "https://project.supabase.co/rest/v1",
+        "service-role-key",
+    )
+
+    assert client.url == "https://project.supabase.co"
+
+
+class FakeSupabaseClient:
+    def request(self, method: str, table: str, *, params=None, **kwargs):
+        if table != "kpop_items":
+            return []
+        if params.get("url", "").startswith("eq."):
+            return []
+        if params.get("url") == "ilike.*MdxdU040OQc*":
+            return [
+                {
+                    "id": "00000000-0000-0000-0000-000000000004",
+                    "item_type": "fancam",
+                    "url": "https://www.youtube.com/watch?v=MdxdU040OQc",
+                }
+            ]
+        return []
+
+
+def test_find_item_by_url_matches_youtube_video_id_when_share_params_differ() -> None:
+    repo = KpopRadarRepository(client=FakeSupabaseClient())
+
+    item = repo.find_item_by_url(
+        "fancam",
+        "https://youtu.be/MdxdU040OQc?si=387cC1qYJNNR2LcM",
+    )
+
+    assert item["id"] == "00000000-0000-0000-0000-000000000004"
 
 
 def test_kpop_radar_home_flex_uses_current_counts(monkeypatch) -> None:

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import requests
 
@@ -38,7 +40,7 @@ class SaveItemResult:
 
 class SupabaseRestClient:
     def __init__(self, url: str, service_role_key: str, timeout_seconds: int = 10) -> None:
-        self.url = url.rstrip("/")
+        self.url = url.rstrip("/").removesuffix("/rest/v1").rstrip("/")
         self.service_role_key = service_role_key
         self.timeout_seconds = timeout_seconds
         self.session = requests.Session()
@@ -298,7 +300,25 @@ class KpopRadarRepository:
                 "limit": "1",
             },
         )
-        return _first(rows) if rows else None
+        if rows:
+            return _first(rows)
+
+        video_id = _youtube_video_id(url)
+        if not video_id:
+            return None
+        candidate_rows = self.client.request(
+            "GET",
+            "kpop_items",
+            params={
+                "select": "*",
+                "item_type": f"eq.{item_type}",
+                "url": f"ilike.*{video_id}*",
+            },
+        )
+        for row in candidate_rows or []:
+            if _youtube_video_id(str(row.get("url") or "")) == video_id:
+                return row
+        return None
 
     def sync_kpop_items(self, items: list[dict[str, Any]]) -> dict[str, int]:
         if not self.client:
@@ -479,6 +499,29 @@ def _normalize_kpop_item(item: dict[str, Any]) -> dict[str, Any]:
 def _empty_to_none(value: Any) -> str | None:
     text = str(value or "").strip()
     return text or None
+
+
+def _youtube_video_id(url: str) -> str | None:
+    parsed = urlparse(url.strip())
+    host = parsed.netloc.casefold()
+    if host.startswith("www."):
+        host = host[4:]
+    if host.startswith("m."):
+        host = host[2:]
+
+    video_id = ""
+    if host == "youtu.be":
+        video_id = parsed.path.strip("/").split("/", 1)[0]
+    elif host in {"youtube.com", "youtube-nocookie.com"} or host.endswith(".youtube.com"):
+        path_parts = [part for part in parsed.path.split("/") if part]
+        if parsed.path == "/watch":
+            video_id = (parse_qs(parsed.query).get("v") or [""])[0]
+        elif path_parts and path_parts[0] in {"embed", "shorts", "live"}:
+            video_id = path_parts[1] if len(path_parts) > 1 else ""
+
+    if not re.fullmatch(r"[\w-]{6,}", video_id):
+        return None
+    return video_id
 
 
 def _chunks(items: list[dict[str, Any]], size: int):
